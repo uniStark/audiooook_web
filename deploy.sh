@@ -1,12 +1,12 @@
-#!/bin/bash
+#!/bin/sh
 # ============================================================
 #  audiooook_web 一键部署脚本
 #  从 CNB 仓库拉取代码并通过 Docker 部署
 #
 #  用法:
-#    curl -fsSL https://cnb.cool/stark.inc/audiooook_web/-/git/raw/main/deploy.sh | bash
+#    curl -fsSL https://cnb.cool/stark.inc/audiooook_web/-/git/raw/main/deploy.sh | sh
 #  或:
-#    bash deploy.sh
+#    sh deploy.sh
 #
 #  可选参数:
 #    AUDIOBOOK_DIR  有声书本地目录 (默认: ~/audiobooks)
@@ -32,17 +32,17 @@ YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-log_info()  { echo -e "${GREEN}[INFO]${NC}  $1"; }
-log_warn()  { echo -e "${YELLOW}[WARN]${NC}  $1"; }
-log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
-log_title() { echo -e "\n${CYAN}══════════════════════════════════════${NC}"; echo -e "${CYAN}  $1${NC}"; echo -e "${CYAN}══════════════════════════════════════${NC}\n"; }
+log_info()  { printf "${GREEN}[INFO]${NC}  %s\n" "$1"; }
+log_warn()  { printf "${YELLOW}[WARN]${NC}  %s\n" "$1"; }
+log_error() { printf "${RED}[ERROR]${NC} %s\n" "$1"; }
+log_title() { printf "\n${CYAN}══════════════════════════════════════${NC}\n"; printf "${CYAN}  %s${NC}\n" "$1"; printf "${CYAN}══════════════════════════════════════${NC}\n\n"; }
 
 # ========== 检查依赖 ==========
 check_dependencies() {
   log_title "检查环境依赖"
 
   # 检查 git
-  if ! command -v git &>/dev/null; then
+  if ! command -v git >/dev/null 2>&1; then
     log_error "未找到 git，请先安装:"
     echo "  Ubuntu/Debian: sudo apt install -y git"
     echo "  CentOS/RHEL:   sudo yum install -y git"
@@ -51,26 +51,26 @@ check_dependencies() {
   log_info "git .............. $(git --version | head -1)"
 
   # 检查 docker
-  if ! command -v docker &>/dev/null; then
+  if ! command -v docker >/dev/null 2>&1; then
     log_warn "未找到 Docker，正在尝试自动安装..."
     install_docker
   fi
   log_info "docker ........... $(docker --version)"
 
   # 检查 docker compose
-  if docker compose version &>/dev/null; then
+  COMPOSE_CMD=""
+  if docker compose version >/dev/null 2>&1; then
     COMPOSE_CMD="docker compose"
     log_info "docker compose ... $(docker compose version --short 2>/dev/null || echo 'available')"
-  elif command -v docker-compose &>/dev/null; then
+  elif command -v docker-compose >/dev/null 2>&1; then
     COMPOSE_CMD="docker-compose"
     log_info "docker-compose ... $(docker-compose --version | head -1)"
   else
     log_warn "未找到 docker compose，将使用 docker build/run 方式部署"
-    COMPOSE_CMD=""
   fi
 
   # 检查 Docker 是否运行
-  if ! docker info &>/dev/null; then
+  if ! docker info >/dev/null 2>&1; then
     log_error "Docker 未运行，请先启动 Docker"
     echo "  sudo systemctl start docker"
     exit 1
@@ -139,7 +139,6 @@ prepare_dirs() {
   fi
 
   # 统计有声书
-  local book_count
   book_count=$(find "$AUDIOBOOK_DIR" -maxdepth 1 -type d | wc -l)
   book_count=$((book_count - 1))
   if [ "$book_count" -gt 0 ]; then
@@ -167,9 +166,8 @@ deploy() {
 
   if [ -n "$COMPOSE_CMD" ]; then
     # 使用 docker compose 部署
-    # 动态修改 docker-compose.yml 中的卷映射和端口
     export AUDIOBOOK_DIR HOST_PORT
-    
+
     # 生成临时 compose 覆盖文件
     cat > docker-compose.override.yml <<EOF
 version: '3.8'
@@ -213,8 +211,8 @@ verify() {
   log_title "验证部署"
 
   # 等待容器启动
-  local retries=10
-  local i=0
+  retries=10
+  i=0
   while [ $i -lt $retries ]; do
     if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
       break
@@ -225,13 +223,12 @@ verify() {
 
   if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
     log_info "容器运行中"
-    
+
     # 等待服务就绪
     sleep 3
-    
+
     # 测试接口
-    if command -v curl &>/dev/null; then
-      local status
+    if command -v curl >/dev/null 2>&1; then
       status=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:${HOST_PORT}/api/config" 2>/dev/null || echo "000")
       if [ "$status" = "200" ]; then
         log_info "API 接口正常 (HTTP 200)"
@@ -248,28 +245,29 @@ verify() {
 
 # ========== 完成 ==========
 done_msg() {
-  local ip
-  ip=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "你的服务器IP")
+  ip=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "")
 
-  echo ""
-  echo -e "${GREEN}══════════════════════════════════════${NC}"
-  echo -e "${GREEN}  部署成功！${NC}"
-  echo -e "${GREEN}══════════════════════════════════════${NC}"
-  echo ""
-  echo -e "  ${CYAN}访问地址${NC}    http://localhost:${HOST_PORT}"
-  [ "$ip" != "你的服务器IP" ] && echo -e "  ${CYAN}局域网地址${NC}  http://${ip}:${HOST_PORT}"
-  echo -e "  ${CYAN}有声书目录${NC}  $AUDIOBOOK_DIR"
-  echo -e "  ${CYAN}项目目录${NC}    $INSTALL_DIR"
-  echo ""
-  echo -e "  常用命令:"
-  echo -e "    ${YELLOW}docker logs -f ${CONTAINER_NAME}${NC}        查看日志"
-  echo -e "    ${YELLOW}docker restart ${CONTAINER_NAME}${NC}        重启服务"
-  echo -e "    ${YELLOW}docker stop ${CONTAINER_NAME}${NC}           停止服务"
-  echo -e "    ${YELLOW}cd $INSTALL_DIR && bash deploy.sh${NC}  更新部署"
-  echo ""
-  echo -e "  将有声书按如下结构放入 ${CYAN}${AUDIOBOOK_DIR}${NC} 即可:"
-  echo -e "    小说名/季(章节)文件夹/音频文件.mp3"
-  echo ""
+  printf "\n"
+  printf "${GREEN}══════════════════════════════════════${NC}\n"
+  printf "${GREEN}  部署成功！${NC}\n"
+  printf "${GREEN}══════════════════════════════════════${NC}\n"
+  printf "\n"
+  printf "  ${CYAN}访问地址${NC}    http://localhost:%s\n" "$HOST_PORT"
+  if [ -n "$ip" ]; then
+    printf "  ${CYAN}局域网地址${NC}  http://%s:%s\n" "$ip" "$HOST_PORT"
+  fi
+  printf "  ${CYAN}有声书目录${NC}  %s\n" "$AUDIOBOOK_DIR"
+  printf "  ${CYAN}项目目录${NC}    %s\n" "$INSTALL_DIR"
+  printf "\n"
+  printf "  常用命令:\n"
+  printf "    ${YELLOW}docker logs -f %s${NC}        查看日志\n" "$CONTAINER_NAME"
+  printf "    ${YELLOW}docker restart %s${NC}        重启服务\n" "$CONTAINER_NAME"
+  printf "    ${YELLOW}docker stop %s${NC}           停止服务\n" "$CONTAINER_NAME"
+  printf "    ${YELLOW}cd %s && sh deploy.sh${NC}  更新部署\n" "$INSTALL_DIR"
+  printf "\n"
+  printf "  将有声书按如下结构放入 ${CYAN}%s${NC} 即可:\n" "$AUDIOBOOK_DIR"
+  printf "    小说名/季(章节)文件夹/音频文件.mp3\n"
+  printf "\n"
 }
 
 # ========== 主流程 ==========
