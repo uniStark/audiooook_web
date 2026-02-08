@@ -49,4 +49,6 @@ export const configApi = {
     method: 'PUT',
     body: JSON.stringify(data),
   }),
+  // 浏览服务器目录
+  browseDir: (dirPath) => request(`/config/browse?path=${encodeURIComponent(dirPath || '')}`),
 };

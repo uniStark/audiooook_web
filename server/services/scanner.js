@@ -18,11 +18,36 @@ const {
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const METADATA_FILE = path.join(DATA_DIR, 'metadata.json');
 
+// 运行时可动态修改的有声书路径
+let _customAudiobookPath = null;
+
 /**
  * 获取有声书根目录
  */
 function getAudiobookPath() {
+  // 优先使用运行时设置 > 环境变量 > 配置文件 > 默认路径
+  if (_customAudiobookPath) return _customAudiobookPath;
+
+  // 尝试从配置文件读取
+  const configFile = path.join(DATA_DIR, 'config.json');
+  try {
+    if (fs.existsSync(configFile)) {
+      const config = JSON.parse(fs.readFileSync(configFile, 'utf-8'));
+      if (config.audiobookPath && fs.existsSync(config.audiobookPath)) {
+        return config.audiobookPath;
+      }
+    }
+  } catch { /* ignore */ }
+
   return process.env.AUDIOBOOK_PATH || path.join(__dirname, '..', '..', 'audiobooks');
+}
+
+/**
+ * 动态设置有声书根目录
+ */
+function setAudiobookPath(newPath) {
+  _customAudiobookPath = newPath;
+  console.log(`[Config] 有声书路径已更新: ${newPath}`);
 }
 
 /**
@@ -265,4 +290,5 @@ module.exports = {
   updateBookMetadata,
   getBookMetadata,
   getAudiobookPath,
+  setAudiobookPath,
 };
