@@ -25,8 +25,8 @@
 # 默认部署（端口 3001，有声书目录 ~/audiobooks）
 curl -fsSL https://cnb.cool/stark.inc/audiooook_web/-/git/raw/main/deploy.sh | bash
 
-# 自定义配置
-AUDIOBOOK_DIR=/data/audiobooks HOST_PORT=8080 \
+# 自定义配置（有声书在 /nas/books，挂载 /nas 以支持 UI 目录浏览）
+AUDIOBOOK_DIR=/nas/books MOUNT_DIR=/nas HOST_PORT=8080 \
   curl -fsSL https://cnb.cool/stark.inc/audiooook_web/-/git/raw/main/deploy.sh | bash
 ```
 
@@ -81,8 +81,16 @@ docker compose up -d
 
 ```bash
 docker build -t audiooook_web .
-docker run -d -p 3001:4001 -v /path/to/audiobooks:/audiobooks --name audiooook_web audiooook_web
+
+# 将宿主机的 /nas 挂载进容器（保持同路径），这样可以在 UI 中浏览 /nas 下所有子目录
+docker run -d -p 3001:4001 \
+  -v /nas:/nas \
+  -v ./data:/app/server/data \
+  -e AUDIOBOOK_PATH=/nas/books \
+  --name audiooook_web audiooook_web
 ```
+
+> **注意**：挂载的宿主机目录在容器内保持同路径（如 `-v /nas:/nas`），这样 UI 中浏览和选择的目录路径在容器内外一致。你也可以挂载多个目录：`-v /nas:/nas -v /mnt/media:/mnt/media`
 
 ## 本地开发
 

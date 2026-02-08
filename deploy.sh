@@ -10,6 +10,8 @@
 #
 #  可选参数:
 #    AUDIOBOOK_DIR  有声书本地目录 (默认: ~/audiobooks)
+#    MOUNT_DIR      挂载到容器的宿主机父目录，用于 UI 浏览 (默认: 与 AUDIOBOOK_DIR 相同)
+#                   例如有声书在 /nas/books 下，设 MOUNT_DIR=/nas 可在 UI 中浏览 /nas 下所有子目录
 #    HOST_PORT      对外访问端口   (默认: 3001)
 #    INSTALL_DIR    项目安装目录   (默认: /opt/audiooook_web)
 # ============================================================
@@ -20,6 +22,8 @@ set -e
 REPO_URL="https://cnb.cool/stark.inc/audiooook_web.git"
 INSTALL_DIR="${INSTALL_DIR:-/opt/audiooook_web}"
 AUDIOBOOK_DIR="${AUDIOBOOK_DIR:-$HOME/audiobooks}"
+# 挂载到容器的宿主机父目录（用于 UI 浏览目录），默认与 AUDIOBOOK_DIR 相同
+MOUNT_DIR="${MOUNT_DIR:-$AUDIOBOOK_DIR}"
 HOST_PORT="${HOST_PORT:-3001}"
 CONTAINER_PORT=4001
 CONTAINER_NAME="audiooook_web"
@@ -166,17 +170,20 @@ deploy() {
 
   if [ -n "$COMPOSE_CMD" ]; then
     # 使用 docker compose 部署
-    export AUDIOBOOK_DIR HOST_PORT
+    export AUDIOBOOK_DIR HOST_PORT MOUNT_DIR
 
     # 生成临时 compose 覆盖文件
+    # 将宿主机目录原路径挂载进容器，使 UI 浏览和有声书路径一致
     cat > docker-compose.override.yml <<EOF
 services:
   audiooook_web:
     ports:
       - "${HOST_PORT}:${CONTAINER_PORT}"
     volumes:
-      - ${AUDIOBOOK_DIR}:/audiobooks
+      - ${MOUNT_DIR}:${MOUNT_DIR}
       - ./data:/app/server/data
+    environment:
+      - AUDIOBOOK_PATH=${AUDIOBOOK_DIR}
 EOF
 
     log_info "使用 Docker Compose 构建镜像..."
@@ -195,10 +202,10 @@ EOF
     docker run -d \
       --name "$CONTAINER_NAME" \
       -p "${HOST_PORT}:${CONTAINER_PORT}" \
-      -v "${AUDIOBOOK_DIR}:/audiobooks" \
+      -v "${MOUNT_DIR}:${MOUNT_DIR}" \
       -v "$(pwd)/data:/app/server/data" \
       -e NODE_ENV=production \
-      -e AUDIOBOOK_PATH=/audiobooks \
+      -e AUDIOBOOK_PATH="${AUDIOBOOK_DIR}" \
       -e PORT=${CONTAINER_PORT} \
       --restart unless-stopped \
       "$IMAGE_NAME"

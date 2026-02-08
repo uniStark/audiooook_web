@@ -91,16 +91,17 @@ else
 
   # 读取之前的挂载配置
   AUDIOBOOK_DIR="${AUDIOBOOK_DIR:-$HOME/audiobooks}"
+  MOUNT_DIR="${MOUNT_DIR:-$AUDIOBOOK_DIR}"
   HOST_PORT="${HOST_PORT:-3001}"
 
   log_info "启动新容器..."
   docker run -d \
     --name "$CONTAINER_NAME" \
     -p "${HOST_PORT}:4001" \
-    -v "${AUDIOBOOK_DIR}:/audiobooks" \
+    -v "${MOUNT_DIR}:${MOUNT_DIR}" \
     -v "$(pwd)/data:/app/server/data" \
     -e NODE_ENV=production \
-    -e AUDIOBOOK_PATH=/audiobooks \
+    -e AUDIOBOOK_PATH="${AUDIOBOOK_DIR}" \
     -e PORT=4001 \
     --restart unless-stopped \
     "$IMAGE_NAME"

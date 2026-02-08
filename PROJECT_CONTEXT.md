@@ -171,6 +171,7 @@ audiooook_web/
 - **Permission handling**: Directories without read permission shown grayed out with "无权限" label; clicking shows error toast
 - **System directory filtering**: `proc`, `sys`, `dev` etc. hidden at root level only (not in subdirectories)
 - **Auto-refresh**: After selecting a new audiobook directory, book list refreshes automatically
+- **Docker note**: The browse endpoint lists the **container's** filesystem, not the host's. To browse host directories (e.g., `/nas/books`), the parent directory must be mounted into the container at the same path (e.g., `-v /nas:/nas`). See Volume Mounts section.
 
 ### 4.9 UI/UX Requirements
 - **Mobile-first**: Designed for phone screens (max-width container)
@@ -314,8 +315,11 @@ docker compose up -d --build
 | `PORT` | 4001 | Internal container port |
 
 ### Volume Mounts
-- `/audiobooks` — Audiobook files (read-only is fine)
+- **Audiobook directory**: Mount the host's parent directory at **the same path** inside the container (e.g., `-v /nas:/nas`). This allows the UI directory browser to see the host filesystem, and the selected audiobook path (e.g., `/nas/books`) works identically inside and outside the container.
+  - Example: If audiobooks are in `/nas/books`, mount `/nas:/nas` and set `AUDIOBOOK_PATH=/nas/books`
+  - Multiple mounts supported: `-v /nas:/nas -v /mnt/media:/mnt/media`
 - `/app/server/data` — Persistent data (config, metadata, transcode cache, covers). Bind-mounted to `./data` on host for easy access/editing
+- **deploy.sh variables**: `AUDIOBOOK_DIR` (audiobook path), `MOUNT_DIR` (parent dir to mount, defaults to AUDIOBOOK_DIR)
 
 ### Development
 ```bash
