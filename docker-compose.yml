@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  audiooook_web:
+    build: .
+    container_name: audiooook_web
+    ports:
+      - "3001:4001"
+    volumes:
+      # 将本地有声书目录挂载到容器中，请修改左侧路径为你的实际路径
+      - ./audiobooks:/audiobooks
+      # 持久化服务端数据（书籍元数据、用户配置、转码缓存等）
+      - audiooook_data:/app/server/data
+    environment:
+      - NODE_ENV=production
+      - AUDIOBOOK_PATH=/audiobooks
+      - PORT=4001
+      # 阿里云OSS配置（可选）
+      # - OSS_REGION=oss-cn-hangzhou
+      # - OSS_ACCESS_KEY_ID=your_access_key_id
+      # - OSS_ACCESS_KEY_SECRET=your_access_key_secret
+      # - OSS_BUCKET=your_bucket_name
+      # - OSS_PREFIX=audiobooks/
+    restart: unless-stopped
+
+volumes:
+  audiooook_data:

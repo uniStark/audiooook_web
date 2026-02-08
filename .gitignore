@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+*.log
+server/data/
+audiobooks/
+.DS_Store
+Thumbs.db
+.dev-pids/
+.dev-logs/
+docker-compose.override.yml

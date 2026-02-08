@@ -1,0 +1,355 @@
+import { useEffect, useState } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { motion } from 'framer-motion';
+import { 
+  HiArrowLeft, HiPlay, HiHeart, HiOutlineHeart, 
+  HiPencilSquare, HiArrowDownTray,
+  HiChevronDown, HiChevronUp
+} from 'react-icons/hi2';
+import { bookApi } from '../utils/api';
+import usePlayerStore from '../stores/playerStore';
+import useBookStore from '../stores/bookStore';
+import EpisodeList from '../components/EpisodeList';
+import { getPlayProgress, cacheAudio } from '../utils/db';
+import { formatTime } from '../utils/format';
+
+export default function BookDetail() {
+  const { bookId } = useParams();
+  const navigate = useNavigate();
+  const { playEpisode, resumeBook, currentBook } = usePlayerStore();
+  const { toggleFavorite, checkFavorite, favorites } = useBookStore();
+  
+  const [book, setBook] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [isFav, setIsFav] = useState(false);
+  const [progress, setProgress] = useState(null);
+  const [expandedSeason, setExpandedSeason] = useState(0);
+  const [showMetaEdit, setShowMetaEdit] = useState(false);
+  const [metaForm, setMetaForm] = useState({});
+  const [downloading, setDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState('');
+
+  useEffect(() => {
+    loadBook();
+    loadFav();
+    loadProgress();
+  }, [bookId]);
+
+  const loadBook = async () => {
+    try {
+      const res = await bookApi.getBook(bookId);
+      setBook(res.data);
+      setMetaForm({
+        customName: res.data.name,
+        description: res.data.description || '',
+        skipIntro: res.data.skipIntro || 0,
+        skipOutro: res.data.skipOutro || 0,
+      });
+    } catch (e) {
+      console.error('Failed to load book:', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadFav = async () => {
+    const fav = await checkFavorite(bookId);
+    setIsFav(fav);
+  };
+
+  const loadProgress = async () => {
+    const p = await getPlayProgress(bookId);
+    setProgress(p);
+    if (p) {
+      setExpandedSeason(p.seasonIndex || 0);
+    }
+  };
+
+  const handleToggleFav = async () => {
+    if (book) {
+      await toggleFavorite(book);
+      setIsFav(!isFav);
+    }
+  };
+
+  const handlePlay = async (seasonIndex, episodeIndex) => {
+    if (book) {
+      await playEpisode(book, seasonIndex, episodeIndex);
+      navigate('/player');
+    }
+  };
+
+  const handleResume = async () => {
+    if (book) {
+      await resumeBook(book);
+      navigate('/player');
+    }
+  };
+
+  const handleSaveMeta = async () => {
+    try {
+      await bookApi.updateMetadata(bookId, metaForm);
+      setShowMetaEdit(false);
+      loadBook();
+    } catch (e) {
+      console.error('Failed to save metadata:', e);
+    }
+  };
+
+  // 批量下载整季
+  const handleDownloadSeason = async (season, seasonIndex) => {
+    if (downloading) return;
+    setDownloading(true);
+    
+    try {
+      for (let i = 0; i < season.episodes.length; i++) {
+        const ep = season.episodes[i];
+        setDownloadProgress(`正在下载 ${i + 1}/${season.episodes.length}`);
+        
+        try {
+          const url = bookApi.getDownloadUrl(book.id, season.id, ep.id);
+          const response = await fetch(url);
+          const blob = await response.blob();
+          
+          const key = `${book.id}_${season.id}_${ep.id}`;
+          await cacheAudio(key, book.id, blob, {
+            episodeName: ep.name,
+            seasonName: season.name,
+            bookName: book.name,
+          });
+        } catch (e) {
+          console.error(`Failed to download ${ep.name}:`, e);
+        }
+      }
+      setDownloadProgress('下载完成！');
+      setTimeout(() => setDownloadProgress(''), 2000);
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="page-container flex items-center justify-center">
+        <div className="w-8 h-8 border-3 border-dark-600 border-t-primary-500 rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!book) {
+    return (
+      <div className="page-container text-center py-20">
+        <p className="text-dark-400">书籍不存在</p>
+        <button onClick={() => navigate('/')} className="btn-primary mt-4">返回书架</button>
+      </div>
+    );
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      className="page-container"
+    >
+      {/* 顶部导航 */}
+      <div className="flex items-center gap-3 mb-4">
+        <button onClick={() => navigate(-1)} className="btn-ghost p-2">
+          <HiArrowLeft className="w-6 h-6" />
+        </button>
+        <h1 className="text-lg font-semibold flex-1 truncate">{book.name}</h1>
+        <button onClick={handleToggleFav} className="btn-ghost p-2">
+          {isFav ? (
+            <HiHeart className="w-6 h-6 text-red-500" />
+          ) : (
+            <HiOutlineHeart className="w-6 h-6" />
+          )}
+        </button>
+        <button onClick={() => setShowMetaEdit(!showMetaEdit)} className="btn-ghost p-2">
+          <HiPencilSquare className="w-5 h-5" />
+        </button>
+      </div>
+
+      {/* 书籍信息头部 */}
+      <div className="glass-card p-4 mb-4">
+        <div className="flex gap-4">
+          <div className="w-28 h-28 rounded-xl overflow-hidden flex-shrink-0 bg-dark-700">
+            <img
+              src={bookApi.getCoverUrl(book.id)}
+              alt={book.name}
+              className="w-full h-full object-cover"
+            />
+          </div>
+          <div className="flex-1 flex flex-col justify-between">
+            <div>
+              <h2 className="text-lg font-bold">{book.name}</h2>
+              {book.description && (
+                <p className="text-sm text-dark-400 mt-1 line-clamp-2">{book.description}</p>
+              )}
+              <p className="text-xs text-dark-500 mt-2">
+                {book.seasons.length > 1 ? `${book.seasons.length}季 · ` : ''}
+                共{book.totalEpisodes}集
+              </p>
+            </div>
+            <button
+              onClick={handleResume}
+              className="btn-primary text-sm py-2 mt-2 flex items-center justify-center gap-2"
+            >
+              <HiPlay className="w-5 h-5" />
+              {progress ? '继续播放' : '开始播放'}
+            </button>
+          </div>
+        </div>
+        
+        {/* 上次播放进度 */}
+        {progress && (
+          <div className="mt-3 pt-3 border-t border-dark-700/50">
+            <p className="text-xs text-dark-400">
+              上次听到：
+              <span className="text-primary-500 ml-1">
+                {progress.seasonName && `${progress.seasonName} · `}
+                {progress.episodeName || `第${progress.episodeIndex + 1}集`}
+                {progress.currentTime > 0 && ` · ${formatTime(progress.currentTime)}`}
+              </span>
+            </p>
+          </div>
+        )}
+
+        {/* 跳过片头片尾信息 */}
+        {(book.skipIntro > 0 || book.skipOutro > 0) && (
+          <div className="mt-2 flex gap-2">
+            {book.skipIntro > 0 && (
+              <span className="text-[10px] bg-dark-700 text-dark-300 px-2 py-1 rounded-full">
+                跳过片头 {book.skipIntro}s
+              </span>
+            )}
+            {book.skipOutro > 0 && (
+              <span className="text-[10px] bg-dark-700 text-dark-300 px-2 py-1 rounded-full">
+                跳过片尾 {book.skipOutro}s
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* 元数据编辑 */}
+      {showMetaEdit && (
+        <motion.div
+          initial={{ height: 0, opacity: 0 }}
+          animate={{ height: 'auto', opacity: 1 }}
+          className="glass-card p-4 mb-4 overflow-hidden"
+        >
+          <h3 className="text-sm font-semibold mb-3">编辑书籍信息</h3>
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs text-dark-400 mb-1 block">自定义名称</label>
+              <input
+                type="text"
+                value={metaForm.customName || ''}
+                onChange={(e) => setMetaForm({ ...metaForm, customName: e.target.value })}
+                className="w-full bg-dark-700 border border-dark-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary-500/50"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-dark-400 mb-1 block">简介</label>
+              <textarea
+                value={metaForm.description || ''}
+                onChange={(e) => setMetaForm({ ...metaForm, description: e.target.value })}
+                rows={2}
+                className="w-full bg-dark-700 border border-dark-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary-500/50 resize-none"
+              />
+            </div>
+            <div className="flex gap-3">
+              <div className="flex-1">
+                <label className="text-xs text-dark-400 mb-1 block">跳过片头（秒）</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={metaForm.skipIntro || 0}
+                  onChange={(e) => setMetaForm({ ...metaForm, skipIntro: parseInt(e.target.value) || 0 })}
+                  className="w-full bg-dark-700 border border-dark-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary-500/50"
+                />
+              </div>
+              <div className="flex-1">
+                <label className="text-xs text-dark-400 mb-1 block">跳过片尾（秒）</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={metaForm.skipOutro || 0}
+                  onChange={(e) => setMetaForm({ ...metaForm, skipOutro: parseInt(e.target.value) || 0 })}
+                  className="w-full bg-dark-700 border border-dark-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary-500/50"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={handleSaveMeta} className="btn-primary text-sm py-2 flex-1">
+                保存
+              </button>
+              <button onClick={() => setShowMetaEdit(false)} className="btn-ghost text-sm py-2 flex-1 border border-dark-600">
+                取消
+              </button>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
+      {/* 下载进度 */}
+      {downloadProgress && (
+        <div className="glass-card p-3 mb-4 text-center text-sm text-primary-500">
+          {downloadProgress}
+        </div>
+      )}
+
+      {/* 季和集列表 */}
+      <div className="space-y-3">
+        {book.seasons.map((season, sIndex) => (
+          <div key={season.id} className="glass-card overflow-hidden">
+            {/* 季标题 */}
+            <button
+              onClick={() => setExpandedSeason(expandedSeason === sIndex ? -1 : sIndex)}
+              className="w-full flex items-center justify-between p-4 text-left"
+            >
+              <div className="flex-1 min-w-0">
+                <h3 className="font-semibold text-sm truncate">{season.name}</h3>
+                <p className="text-xs text-dark-400 mt-0.5">{season.episodes.length}集</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDownloadSeason(season, sIndex);
+                  }}
+                  disabled={downloading}
+                  className="text-dark-400 hover:text-primary-500 p-1"
+                  title="下载整季"
+                >
+                  <HiArrowDownTray className="w-4 h-4" />
+                </button>
+                {expandedSeason === sIndex ? (
+                  <HiChevronUp className="w-5 h-5 text-dark-400" />
+                ) : (
+                  <HiChevronDown className="w-5 h-5 text-dark-400" />
+                )}
+              </div>
+            </button>
+            
+            {/* 集列表 */}
+            {expandedSeason === sIndex && (
+              <motion.div
+                initial={{ height: 0 }}
+                animate={{ height: 'auto' }}
+                className="border-t border-dark-700/50"
+              >
+                <EpisodeList 
+                  book={book} 
+                  season={season} 
+                  seasonIndex={sIndex}
+                  onPlay={handlePlay}
+                />
+              </motion.div>
+            )}
+          </div>
+        ))}
+      </div>
+    </motion.div>
+  );
+}
