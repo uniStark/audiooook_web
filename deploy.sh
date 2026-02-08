@@ -43,10 +43,9 @@ check_dependencies() {
 
   # 检查 git
   if ! command -v git &>/dev/null; then
-    log_error "未找到 git，请先安装"
-    echo "  Ubuntu/Debian: sudo apt install git"
-    echo "  CentOS/RHEL:   sudo yum install git"
-    echo "  macOS:         xcode-select --install"
+    log_error "未找到 git，请先安装:"
+    echo "  Ubuntu/Debian: sudo apt install -y git"
+    echo "  CentOS/RHEL:   sudo yum install -y git"
     exit 1
   fi
   log_info "git .............. $(git --version | head -1)"
