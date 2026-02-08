@@ -8,7 +8,7 @@ services:
       - "3001:4001"
     volumes:
       # 将本地有声书目录挂载到容器中，请修改左侧路径为你的实际路径
-      - ./audiobooks:/audiobooks
+      - /nas/viedoBook/盗墓笔记｜南派三叔｜演播周建龙｜
       # 持久化服务端数据（书籍元数据、用户配置、转码缓存等）
       - audiooook_data:/app/server/data
     environment:
