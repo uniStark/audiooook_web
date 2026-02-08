@@ -98,7 +98,7 @@ else
     --name "$CONTAINER_NAME" \
     -p "${HOST_PORT}:4001" \
     -v "${AUDIOBOOK_DIR}:/audiobooks" \
-    -v audiooook_data:/app/server/data \
+    -v "$(pwd)/data:/app/server/data" \
     -e NODE_ENV=production \
     -e AUDIOBOOK_PATH=/audiobooks \
     -e PORT=4001 \

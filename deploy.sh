@@ -170,14 +170,13 @@ deploy() {
 
     # 生成临时 compose 覆盖文件
     cat > docker-compose.override.yml <<EOF
-version: '3.8'
 services:
   audiooook_web:
     ports:
       - "${HOST_PORT}:${CONTAINER_PORT}"
     volumes:
       - ${AUDIOBOOK_DIR}:/audiobooks
-      - audiooook_data:/app/server/data
+      - ./data:/app/server/data
 EOF
 
     log_info "使用 Docker Compose 构建镜像..."
@@ -197,7 +196,7 @@ EOF
       --name "$CONTAINER_NAME" \
       -p "${HOST_PORT}:${CONTAINER_PORT}" \
       -v "${AUDIOBOOK_DIR}:/audiobooks" \
-      -v audiooook_data:/app/server/data \
+      -v "$(pwd)/data:/app/server/data" \
       -e NODE_ENV=production \
       -e AUDIOBOOK_PATH=/audiobooks \
       -e PORT=${CONTAINER_PORT} \
