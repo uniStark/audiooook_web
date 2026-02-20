@@ -58,6 +58,19 @@ async function extractArchive(archivePath, outputDir) {
 
 // ========== Helpers ==========
 
+function moveFile(src, dest) {
+  try {
+    fs.renameSync(src, dest);
+  } catch (e) {
+    if (e.code === 'EXDEV') {
+      fs.copyFileSync(src, dest);
+      fs.unlinkSync(src);
+    } else {
+      throw e;
+    }
+  }
+}
+
 function moveDirContents(srcDir, destDir) {
   fs.mkdirSync(destDir, { recursive: true });
   for (const entry of fs.readdirSync(srcDir)) {
@@ -68,7 +81,7 @@ function moveDirContents(srcDir, destDir) {
       moveDirContents(srcPath, destPath);
     } else {
       fs.mkdirSync(path.dirname(destPath), { recursive: true });
-      fs.renameSync(srcPath, destPath);
+      moveFile(srcPath, destPath);
     }
   }
 }
@@ -197,7 +210,7 @@ router.post('/', upload.array('files', 500), async (req, res) => {
 
         const destPath = path.join(audiobookPath, finalBookName, innerPath);
         fs.mkdirSync(path.dirname(destPath), { recursive: true });
-        fs.renameSync(req.files[i].path, destPath);
+        moveFile(req.files[i].path, destPath);
       }
 
       const destDir = path.join(audiobookPath, finalBookName);
@@ -225,7 +238,7 @@ router.post('/', upload.array('files', 500), async (req, res) => {
       for (const file of req.files) {
         const originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
         const destPath = path.join(destDir, originalName);
-        fs.renameSync(file.path, destPath);
+        moveFile(file.path, destPath);
         uploadedFiles.push(originalName);
       }
 
