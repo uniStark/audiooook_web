@@ -39,6 +39,7 @@ export default function Settings() {
   const [uploadSeasonName, setUploadSeasonName] = useState('');
   const [uploadFiles, setUploadFiles] = useState([]);
   const [uploadRelativePaths, setUploadRelativePaths] = useState([]);
+  const [diskSpace, setDiskSpace] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadResult, setUploadResult] = useState(null);
@@ -53,7 +54,15 @@ export default function Settings() {
     loadConfig();
     loadCacheInfo();
     loadLocalSettings();
+    loadDiskSpace();
   }, []);
+
+  const loadDiskSpace = async () => {
+    try {
+      const res = await uploadApi.getUploadPath();
+      if (res.success && res.data) setDiskSpace(res.data);
+    } catch { /* ignore */ }
+  };
 
   const loadConfig = async () => {
     try {
@@ -221,6 +230,7 @@ export default function Settings() {
         if (d.convertingCount > 0) msg += `，${d.convertingCount} 个正在转换格式`;
         setUploadResult({ type: 'success', message: msg });
         resetUpload();
+        loadDiskSpace();
         await fetchBooks();
       }
     } catch (e) {
@@ -301,9 +311,16 @@ export default function Settings() {
             <HiOutlineArrowUpTray className="w-5 h-5 text-primary-500" />
             <h2 className="font-semibold">上架图书</h2>
           </div>
-          <p className="text-[10px] text-dark-500 mb-3">
+          <p className="text-[10px] text-dark-500 mb-1">
             上传音频到服务器，WMA/APE 格式会自动转换为 M4A
           </p>
+          {diskSpace && (
+            <p className={`text-[10px] mb-3 ${diskSpace.availableBytes >= 0 && diskSpace.availableBytes < 500 * 1024 * 1024 ? 'text-red-400' : 'text-dark-500'}`}>
+              存储路径：{diskSpace.path} ·
+              可用空间：{diskSpace.availableFormatted}
+              {diskSpace.availableBytes >= 0 && diskSpace.availableBytes < 500 * 1024 * 1024 && ' ⚠ 空间不足'}
+            </p>
+          )}
 
           {/* 模式切换 */}
           <div className="flex gap-1 mb-3 bg-dark-800 rounded-lg p-0.5">

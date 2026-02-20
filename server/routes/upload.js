@@ -3,7 +3,7 @@ const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const { execFile } = require('child_process');
+const { execFile, execSync } = require('child_process');
 const { promisify } = require('util');
 const execFileAsync = promisify(execFile);
 const { getAudiobookPath } = require('../services/scanner');
@@ -11,6 +11,50 @@ const { needsConversion, convertFile } = require('../services/converter');
 const { isAudioFile } = require('../utils/parser');
 
 const ARCHIVE_EXTS = new Set(['.zip', '.7z', '.rar']);
+
+// ========== Startup: clean stale temp files from previous runs ==========
+function cleanupStaleTempDirs() {
+  // Clean old /tmp/audiooook_uploads (legacy location)
+  const legacyTmp = path.join(require('os').tmpdir(), 'audiooook_uploads');
+  try {
+    if (fs.existsSync(legacyTmp)) {
+      fs.rmSync(legacyTmp, { recursive: true, force: true });
+      console.log(`[Upload] 已清理旧临时目录: ${legacyTmp}`);
+    }
+  } catch { /* ignore */ }
+
+  // Clean .upload_tmp inside the audiobook path
+  try {
+    const abPath = getAudiobookPath();
+    const tmpBase = path.join(abPath, '.upload_tmp');
+    if (fs.existsSync(tmpBase)) {
+      fs.rmSync(tmpBase, { recursive: true, force: true });
+      console.log(`[Upload] 已清理上传临时目录: ${tmpBase}`);
+    }
+  } catch { /* ignore */ }
+}
+
+// Run cleanup after a short delay (getAudiobookPath might not be ready at import time)
+setTimeout(cleanupStaleTempDirs, 2000);
+
+// ========== Disk space helpers ==========
+function getAvailableBytes(dirPath) {
+  try {
+    const output = execSync(`df -B1 "${dirPath}" 2>/dev/null | tail -1`, { encoding: 'utf8' });
+    const parts = output.trim().split(/\s+/);
+    return parseInt(parts[3], 10) || 0;
+  } catch {
+    return -1;
+  }
+}
+
+function formatBytes(bytes) {
+  if (bytes < 0) return '未知';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+}
 
 function isArchiveFile(filename) {
   const lower = filename.toLowerCase();
@@ -143,6 +187,17 @@ router.post('/', upload.array('files', 500), async (req, res) => {
     const seasonName = (req.body.seasonName || '').trim();
     const audiobookPath = getAudiobookPath();
 
+    // Disk space check: files already written to temp, verify enough space remains for move/extract
+    const totalUploadSize = req.files.reduce((sum, f) => sum + f.size, 0);
+    const available = getAvailableBytes(audiobookPath);
+    if (available >= 0 && available < totalUploadSize * 1.1) {
+      cleanTemp(tempDir);
+      return res.status(507).json({
+        success: false,
+        error: `磁盘空间不足！需要约 ${formatBytes(totalUploadSize)}，但仅剩 ${formatBytes(available)}。请清理服务器磁盘后重试。`,
+      });
+    }
+
     if (mode === 'archive') {
       // ===== Archive mode =====
       const archiveFile = req.files[0];
@@ -256,7 +311,21 @@ router.post('/', upload.array('files', 500), async (req, res) => {
 });
 
 router.get('/path', (req, res) => {
-  res.json({ success: true, data: { path: getAudiobookPath() } });
+  const abPath = getAudiobookPath();
+  const available = getAvailableBytes(abPath);
+  res.json({
+    success: true,
+    data: {
+      path: abPath,
+      availableBytes: available,
+      availableFormatted: formatBytes(available),
+    },
+  });
+});
+
+router.delete('/cleanup', (req, res) => {
+  cleanupStaleTempDirs();
+  res.json({ success: true, message: '临时文件已清理' });
 });
 
 router.use((err, req, res, next) => {
