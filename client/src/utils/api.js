@@ -50,20 +50,9 @@ export const bookApi = {
   getDownloadUrl: (bookId, seasonId, episodeId) =>
     `${API_BASE}/audio/download/${bookId}/${seasonId}/${episodeId}`,
 
-  // 触发后台预转码（播放某集时预转码接下来的几集）
-  pretranscode: (bookId, seasonIndex, episodeIndex) =>
-    request('/audio/pretranscode', {
-      method: 'POST',
-      body: JSON.stringify({ bookId, seasonIndex, episodeIndex }),
-    }).catch(() => {}), // fire-and-forget, 不阻塞播放
-
-  // 取消后台转码队列
-  cancelTranscode: () =>
-    request('/audio/transcode-cancel', { method: 'POST' }),
-
-  // 获取转码状态
-  getTranscodeStatus: () =>
-    request('/audio/transcode-status'),
+  // 获取格式转换进度
+  getConversionStatus: (bookId) =>
+    request(`/books/${bookId}/conversion-status`),
 };
 
 // 用户数据API（服务端持久化：收藏、播放进度、用户设置）

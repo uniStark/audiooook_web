@@ -18,8 +18,8 @@ const AUDIO_EXTENSIONS = new Set([
   '.mp3', '.wma', '.wav', '.flac', '.aac', '.ogg', '.m4a', '.opus', '.ape', '.alac'
 ]);
 
-// 需要转码的格式（浏览器不原生支持）
-const NEED_TRANSCODE = new Set(['.wma', '.ape', '.alac', '.flac']);
+// 需要转换的格式（浏览器不原生支持，将被永久转换为 AAC/.m4a）
+const NEED_TRANSCODE = new Set(['.wma', '.ape']);
 
 /**
  * 判断文件是否为音频文件

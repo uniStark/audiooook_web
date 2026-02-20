@@ -2,49 +2,53 @@ const express = require('express');
 const router = express.Router();
 const path = require('path');
 const fs = require('fs');
-const { 
-  scanAudiobooks, 
-  getBookDetail, 
-  getCoverPath, 
+const {
+  scanAudiobooks,
+  getBookDetail,
+  getCoverPath,
   updateBookMetadata,
   getBookMetadata,
 } = require('../services/scanner');
-const { preTranscodeBook, getTranscodeConfig } = require('../services/transcoder');
+const {
+  startBookConversion,
+  getConversionProgress,
+  bookNeedsConversion,
+} = require('../services/converter');
 const { COVERS_DIR } = require('../utils/paths');
 
 /**
  * GET /api/books
  * 获取所有有声书列表
+ * 检测到 WMA/APE 文件时自动触发后台转换
  */
 router.get('/', (req, res) => {
   try {
     const books = scanAudiobooks();
 
-    // 检测新书并触发后台预转码
-    const config = getTranscodeConfig();
-    if (config.autoTranscode) {
-      for (const book of books) {
-        const meta = getBookMetadata(book.id);
-        if (!meta._pretranscoded) {
-          // 新书：标记已触发预转码，然后后台执行
-          updateBookMetadata(book.id, { _pretranscoded: true });
-          preTranscodeBook(book);
-        }
+    for (const book of books) {
+      if (bookNeedsConversion(book)) {
+        startBookConversion(book);
       }
     }
 
-    // 返回简化的书籍列表（不含完整的episodes数据）
-    const bookList = books.map(book => ({
-      id: book.id,
-      name: book.name,
-      folderName: book.folderName,
-      description: book.description,
-      hasCover: book.hasCoverFile || !!book.cover,
-      skipIntro: book.skipIntro,
-      skipOutro: book.skipOutro,
-      seasonCount: book.seasons.length,
-      totalEpisodes: book.totalEpisodes,
-    }));
+    const bookList = books.map(book => {
+      const progress = getConversionProgress(book.id);
+      return {
+        id: book.id,
+        name: book.name,
+        folderName: book.folderName,
+        description: book.description,
+        hasCover: book.hasCoverFile || !!book.cover,
+        skipIntro: book.skipIntro,
+        skipOutro: book.skipOutro,
+        seasonCount: book.seasons.length,
+        totalEpisodes: book.totalEpisodes,
+        converting: progress && progress.status === 'converting' ? {
+          total: progress.total,
+          completed: progress.completed,
+        } : null,
+      };
+    });
     res.json({ success: true, data: bookList });
   } catch (e) {
     console.error('Failed to scan audiobooks:', e);
@@ -54,7 +58,7 @@ router.get('/', (req, res) => {
 
 /**
  * GET /api/books/:bookId
- * 获取单本书详情（含季和集信息）
+ * 获取单本书详情
  */
 router.get('/:bookId', (req, res) => {
   try {
@@ -62,8 +66,7 @@ router.get('/:bookId', (req, res) => {
     if (!book) {
       return res.status(404).json({ success: false, error: '书籍不存在' });
     }
-    
-    // 不返回文件系统路径（安全考虑）
+
     const safeBook = {
       ...book,
       path: undefined,
@@ -76,7 +79,7 @@ router.get('/:bookId', (req, res) => {
         })),
       })),
     };
-    
+
     res.json({ success: true, data: safeBook });
   } catch (e) {
     console.error('Failed to get book detail:', e);
@@ -85,8 +88,16 @@ router.get('/:bookId', (req, res) => {
 });
 
 /**
+ * GET /api/books/:bookId/conversion-status
+ * 获取书籍的格式转换进度
+ */
+router.get('/:bookId/conversion-status', (req, res) => {
+  const progress = getConversionProgress(req.params.bookId);
+  res.json({ success: true, data: progress });
+});
+
+/**
  * GET /api/books/:bookId/cover
- * 获取封面图片
  */
 router.get('/:bookId/cover', (req, res) => {
   try {
@@ -94,7 +105,6 @@ router.get('/:bookId/cover', (req, res) => {
     if (coverPath && fs.existsSync(coverPath)) {
       return res.sendFile(coverPath);
     }
-    // 返回默认封面（空的SVG）
     res.setHeader('Content-Type', 'image/svg+xml');
     res.send(`<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
       <rect width="200" height="200" fill="#1e293b"/>
@@ -108,19 +118,17 @@ router.get('/:bookId/cover', (req, res) => {
 
 /**
  * PUT /api/books/:bookId/metadata
- * 更新书籍元数据（自定义名称、简介、跳过片头片尾等）
  */
 router.put('/:bookId/metadata', (req, res) => {
   try {
     const { customName, description, skipIntro, skipOutro, customCover } = req.body;
     const updates = {};
-    
     if (customName !== undefined) updates.customName = customName;
     if (description !== undefined) updates.description = description;
     if (skipIntro !== undefined) updates.skipIntro = Number(skipIntro) || 0;
     if (skipOutro !== undefined) updates.skipOutro = Number(skipOutro) || 0;
     if (customCover !== undefined) updates.customCover = customCover;
-    
+
     const meta = updateBookMetadata(req.params.bookId, updates);
     res.json({ success: true, data: meta });
   } catch (e) {
@@ -131,15 +139,13 @@ router.put('/:bookId/metadata', (req, res) => {
 
 /**
  * POST /api/books/:bookId/cover
- * 上传自定义封面
  */
 router.post('/:bookId/cover', express.raw({ type: 'image/*', limit: '5mb' }), (req, res) => {
   try {
     const contentType = req.headers['content-type'] || 'image/jpeg';
     const ext = contentType.split('/')[1] === 'jpeg' ? 'jpg' : (contentType.split('/')[1] || 'jpg');
     const coverFile = path.join(COVERS_DIR, `${req.params.bookId}.${ext}`);
-    
-    // 清理旧的封面文件（可能是不同扩展名）
+
     const imageExts = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp'];
     for (const oldExt of imageExts) {
       const oldFile = path.join(COVERS_DIR, `${req.params.bookId}.${oldExt}`);
@@ -147,10 +153,10 @@ router.post('/:bookId/cover', express.raw({ type: 'image/*', limit: '5mb' }), (r
         try { fs.unlinkSync(oldFile); } catch { /* ignore */ }
       }
     }
-    
+
     fs.writeFileSync(coverFile, req.body);
     updateBookMetadata(req.params.bookId, { customCover: coverFile });
-    
+
     res.json({ success: true, message: '封面上传成功' });
   } catch (e) {
     console.error('Failed to upload cover:', e);

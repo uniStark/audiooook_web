@@ -69,9 +69,9 @@ audiooook_web/
 │   │   │   ├── Bookshelf.jsx   # Main page: book grid + search + refresh
 │   │   │   ├── BookDetail.jsx  # Book info, season/episode list, metadata editing, cover upload
 │   │   │   ├── Favorites.jsx   # Favorited books list
-│   │   │   └── Settings.jsx    # Server config, cache management, auto-transcode settings, dir browser
+│   │   │   └── Settings.jsx    # Server config, cache management, playback settings, dir browser
 │   │   ├── stores/
-│   │   │   ├── playerStore.js  # Zustand: audio playback state, skip intro/outro, progress, pre-transcode trigger
+│   │   │   ├── playerStore.js  # Zustand: audio playback state, skip intro/outro, progress persistence
 │   │   │   ├── bookStore.js    # Zustand: book list, favorites
 │   │   │   └── downloadStore.js # Zustand: download task management, progress tracking, cancel
 │   │   └── utils/
@@ -83,13 +83,13 @@ audiooook_web/
 ├── server/                     # Express backend
 │   ├── index.js                # Server entry: Express app, routes, static serving
 │   ├── routes/
-│   │   ├── books.js            # /api/books — list, detail, metadata CRUD, cover upload, new-book pre-transcode trigger
-│   │   ├── audio.js            # /api/audio — streaming, download, pre-transcode API, transcode status
+│   │   ├── books.js            # /api/books — list, detail, metadata CRUD, cover upload, conversion trigger + status
+│   │   ├── audio.js            # /api/audio — streaming (direct file), download
 │   │   ├── config.js           # /api/config — server settings, directory browser
 │   │   └── user.js             # /api/user — server-side persistence for favorites, progress, user settings
 │   ├── services/
 │   │   ├── scanner.js          # Audiobook directory scanner, metadata CRUD, cover finder
-│   │   ├── transcoder.js       # Background transcoding queue, pre-transcode strategies
+│   │   ├── converter.js        # Background format conversion (WMA/APE → AAC/.m4a, replaces originals)
 │   │   └── oss.js              # Alibaba Cloud OSS integration (optional)
 │   ├── utils/
 │   │   └── parser.js           # File parsing: audio detection, episode/season number extraction, name cleaning
@@ -108,19 +108,19 @@ audiooook_web/
 ## 4. Requirements & Features (Complete History)
 
 ### 4.1 Audio Playback
-- **Supported formats**: MP3, WMA, WAV, FLAC, AAC, OGG, M4A, OPUS, APE, ALAC
-- **Server-side transcoding**: WMA, APE, ALAC, FLAC → MP3 (128kbps, 44.1kHz, stereo) via FFmpeg
-- **Transcode caching**: Transcoded files are cached in `server/data/transcode-cache/` to avoid re-transcoding
-- **Background auto-transcoding**:
-  - When a new book is first detected, auto-transcode the first N episodes **across all seasons** (per-book, not per-season). E.g., if N=5 and season 1 has 3 episodes, it takes all 3 from S1 + first 2 from S2
-  - When a user plays any episode, auto-transcode the next N episodes from that position (across season boundaries) — **high priority** (inserted at queue front)
-  - N is user-configurable in Settings (range: 1–20, default: 5)
-  - User can toggle auto-transcode on/off in Settings
-  - **Cancellation**: When user disables auto-transcode, the current task finishes and the remaining queue is cleared (no more new tasks start)
-  - **Performance safeguard**: System load (CPU & memory) is monitored. Concurrency is dynamically limited to `cpuCores / 2` (min 1, max 10). If CPU or memory exceeds **85%**, workers pause and wait for load to drop. After 3 consecutive overload checks (~45s), the worker exits and tasks remain queued for later
-  - De-duplication: already-cached or in-progress files are skipped
-  - **Priority queue**: Playback-triggered pre-transcodes are inserted at the front (high priority), while new-book pre-transcodes go to the back
-- **Streaming**: Supports HTTP Range requests for seeking/progress bar dragging
+- **Supported formats (browser-native)**: MP3, AAC/M4A, WAV, FLAC, OGG, OPUS
+- **Formats requiring conversion**: WMA, APE — these are **permanently converted** to AAC (.m4a) on the server, replacing the original files
+- **Format conversion architecture** (v2 — simplified):
+  - **No more on-demand transcoding**: The old architecture transcoded files during playback; the new architecture converts all WMA/APE files to AAC/.m4a **upfront** when a book is first detected
+  - **Trigger**: When `/api/books` is called and a book contains WMA/APE files, background conversion starts automatically
+  - **Conversion target**: AAC (.m4a), 64kbps, 44.1kHz, mono — optimal for audiobook voice content (half the size of MP3 128kbps, equal or better quality)
+  - **Replaces originals**: After successful conversion, the original WMA/APE file is deleted; the .m4a file takes its place in the same directory
+  - **Performance safeguard**: Dynamic concurrency (`cpuCores / 2`, max 10). CPU/memory monitored — if either exceeds **85%**, workers pause (up to ~60s with retries), then exit if overload persists. Tasks remain queued for later
+  - **Progress tracking**: Per-book progress exposed via `GET /api/books/:bookId/conversion-status` and polled by the UI
+  - **UI indicators**: BookCard shows amber progress bar during conversion; BookDetail shows detailed progress bar with file count and current file name
+  - **Service**: `server/services/converter.js` (replaced the old `transcoder.js`)
+  - **No user configuration needed**: Conversion is fully automatic, no settings required
+- **Streaming**: All audio served as static files with HTTP Range request support (seeking/progress bar)
 - **Controls**: Play/pause, previous/next episode, fast-forward/rewind 15s, seekable progress bar
 - **Media Session API**: Lock-screen controls on mobile
 
@@ -201,8 +201,9 @@ audiooook_web/
 ### Books (`/api/books`)
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/books` | List all audiobooks (triggers new-book pre-transcode) |
+| GET | `/api/books` | List all audiobooks (triggers format conversion for WMA/APE books) |
 | GET | `/api/books/:bookId` | Get book detail with seasons/episodes |
+| GET | `/api/books/:bookId/conversion-status` | Get format conversion progress for a book |
 | GET | `/api/books/:bookId/cover` | Get cover image (or default SVG) |
 | POST | `/api/books/:bookId/cover` | Upload custom cover (Content-Type: image/*, raw body) |
 | PUT | `/api/books/:bookId/metadata` | Update metadata (customName, description, skipIntro, skipOutro) |
@@ -210,17 +211,14 @@ audiooook_web/
 ### Audio (`/api/audio`)
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/audio/:bookId/:seasonId/:episodeId` | Stream audio (auto-transcodes if needed, supports Range) |
+| GET | `/api/audio/:bookId/:seasonId/:episodeId` | Stream audio file (direct file serving, supports Range) |
 | GET | `/api/audio/download/:bookId/:seasonId/:episodeId` | Download audio file |
-| POST | `/api/audio/pretranscode` | Trigger background pre-transcode (body: {bookId, seasonIndex, episodeIndex}) |
-| GET | `/api/audio/transcode-status` | Get transcoding queue status |
-| POST | `/api/audio/transcode-cancel` | Cancel background transcode queue (finish current, clear rest) |
 
 ### Config (`/api/config`)
 | Method | Path | Description |
 |---|---|---|
 | GET | `/api/config` | Get server configuration |
-| PUT | `/api/config` | Update config (cacheSizeMB, audiobookPath, autoTranscode, autoTranscodeCount) |
+| PUT | `/api/config` | Update config (cacheSizeMB, audiobookPath) |
 | GET | `/api/config/browse?path=xxx` | Browse server directories |
 
 ### User Data (`/api/user`) — Server-side persistence
@@ -246,8 +244,7 @@ audiooook_web/
     "description": "Book description",
     "skipIntro": 15,
     "skipOutro": 30,
-    "customCover": "/abs/path/to/server/data/covers/bookId.jpg",
-    "_pretranscoded": true
+    "customCover": "/abs/path/to/server/data/covers/bookId.jpg"
   }
 }
 ```
@@ -256,9 +253,7 @@ audiooook_web/
 ```json
 {
   "cacheSizeMB": 300,
-  "audiobookPath": "/audiobooks",
-  "autoTranscode": true,
-  "autoTranscodeCount": 5
+  "audiobookPath": "/audiobooks"
 }
 ```
 
@@ -301,15 +296,14 @@ audiooook_web/
 - It re-reads the filesystem each time, merging with metadata from `metadata.json`.
 - This means directory changes are reflected immediately on refresh.
 
-### Transcoding Architecture
-- **On-demand** (audio.js): When a user requests a WMA/FLAC/APE/ALAC file, `ensureTranscoded()` checks cache → transcodes if needed → serves cached MP3.
-- **Pre-emptive** (transcoder.js): Background queue transcodes upcoming episodes before user reaches them.
-  - Trigger 1: New book detected → first N episodes **across all seasons** (per-book unit, not per-season)
-  - Trigger 2: User plays episode → next N episodes from current position (high priority, queue front)
-- **Queue**: Multi-threaded concurrent queue. Workers pull from a shared FIFO queue until empty.
-- **Dynamic concurrency**: `min(cpuCores / 2, MAX_CONCURRENCY=10)`. Adjusts based on actual CPU core count.
-- **Performance safeguard**: Workers check CPU and memory usage (via `os` module) before each task. If either exceeds **85%**, the worker pauses (up to ~45s with retries). If overload persists, worker exits; tasks remain queued for later.
-- **Cache key**: `${bookId}_${seasonId}_${episodeId}.mp3` in `server/data/transcode-cache/`
+### Format Conversion Architecture (v2)
+- **No on-demand transcoding**: All WMA/APE files are permanently converted to AAC (.m4a) upfront
+- **Converter service** (`server/services/converter.js`): When a book is detected with WMA/APE files, all such files are queued for conversion
+- **Conversion**: FFmpeg converts `input.wma` → `input.m4a` (AAC 64kbps), then deletes the original `.wma` file
+- **Queue**: Concurrent workers pull from a per-book queue. Dynamic concurrency: `min(cpuCores / 2, 10)`
+- **Performance safeguard**: CPU/memory monitored via `os` module. If either exceeds 85%, workers pause. After 6 retries (~60s), worker exits; tasks remain for later
+- **Progress**: Per-book progress tracked in memory (`bookProgress` Map), exposed via API and polled by UI (every 2s)
+- **Audio streaming**: `audio.js` is now a simple file server — no transcoding logic, just serves files with Range support
 
 ### State Management
 - **playerStore** (Zustand): Singleton audio element, playback state, skip settings, progress saving.
@@ -319,7 +313,7 @@ audiooook_web/
 ### Config File Location (via `server/utils/paths.js`)
 - **Dev** (`NODE_ENV != production`): `{project_root}/config.json`, `{project_root}/metadata.json`, `{project_root}/user-data.json`
 - **Production** (`NODE_ENV=production`): `{server}/data/config.json`, `{server}/data/metadata.json`, `{server}/data/user-data.json`
-- **Transcode cache & covers**: Always in `{server}/data/` regardless of environment
+- **Covers**: Always in `{server}/data/covers/` regardless of environment
 - In Docker, `./data` is bind-mounted to `/app/server/data`, making config files directly editable on host
 
 ### Audiobook Path Priority
@@ -361,7 +355,7 @@ docker compose up -d --build
 - **Audiobook directory**: Mount the host's parent directory at **the same path** inside the container (e.g., `-v /nas:/nas`). This allows the UI directory browser to see the host filesystem, and the selected audiobook path (e.g., `/nas/books`) works identically inside and outside the container.
   - Example: If audiobooks are in `/nas/books`, mount `/nas:/nas` and set `AUDIOBOOK_PATH=/nas/books`
   - Multiple mounts supported: `-v /nas:/nas -v /mnt/media:/mnt/media`
-- `/app/server/data` — Persistent data (config, metadata, transcode cache, covers). Bind-mounted to `./data` on host for easy access/editing
+- `/app/server/data` — Persistent data (config, metadata, user-data, covers). Bind-mounted to `./data` on host for easy access/editing
 - **deploy.sh variables**: `AUDIOBOOK_DIR` (audiobook path), `MOUNT_DIR` (parent dir to mount, defaults to AUDIOBOOK_DIR)
 
 ### Development
@@ -397,9 +391,9 @@ npm run dev
 
 ### Browser Audio Limitations
 - Browsers cannot natively play WMA, APE, ALAC, FLAC.
-- These formats MUST be transcoded to MP3 on the server side.
-- Streaming untranscoded WMA causes `Infinity:NaN:NaN` duration and non-seekable progress bars.
-- Solution: Transcode to a file first (not pipe-stream), then serve the file with proper Content-Length and Accept-Ranges headers.
+- These formats are **permanently converted to AAC/.m4a** when a book is first detected.
+- The old architecture transcoded on-demand during playback, which caused `Infinity:NaN:NaN` duration and non-seekable progress bars with pipe-streaming.
+- Current solution (v2): Convert all WMA/APE to .m4a upfront, delete originals, then serve .m4a directly as static files with proper Content-Length and Accept-Ranges headers.
 
 ### Duration Handling
 - `formatTime()` guards against NaN, Infinity, and negative values.
@@ -424,4 +418,4 @@ These are areas the owner may want to extend:
 
 *Author: Adrian Stark*
 *Last updated: 2026-02-08*
-*Document version: 1.3*
+*Document version: 1.4 — Major architecture change: removed on-demand transcoding, replaced with permanent WMA/APE → AAC conversion*

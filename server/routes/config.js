@@ -30,8 +30,6 @@ function getDefaultConfig() {
     cacheSizeMB: 300,
     audiobookPath: getAudiobookPath(),
     ossEnabled: isOSSConfigured(),
-    autoTranscode: true,
-    autoTranscodeCount: 5,
   };
 }
 
@@ -58,18 +56,10 @@ router.get('/', (req, res) => {
 router.put('/', (req, res) => {
   try {
     const currentConfig = loadConfig();
-    const { cacheSizeMB, audiobookPath, autoTranscode, autoTranscodeCount } = req.body;
+    const { cacheSizeMB, audiobookPath } = req.body;
 
     if (cacheSizeMB !== undefined) {
       currentConfig.cacheSizeMB = Math.max(50, Math.min(5000, Number(cacheSizeMB)));
-    }
-
-    if (autoTranscode !== undefined) {
-      currentConfig.autoTranscode = !!autoTranscode;
-    }
-
-    if (autoTranscodeCount !== undefined) {
-      currentConfig.autoTranscodeCount = Math.max(1, Math.min(20, Number(autoTranscodeCount) || 5));
     }
 
     if (audiobookPath !== undefined) {

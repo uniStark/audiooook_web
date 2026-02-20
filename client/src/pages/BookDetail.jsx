@@ -30,13 +30,33 @@ export default function BookDetail() {
   const { isDownloading, tasks: downloadTasks, completedCount, totalCount, downloadSeason, cancelDownload } = useDownloadStore();
   const [uploading, setUploading] = useState(false);
   const coverInputRef = useRef(null);
-  const [coverKey, setCoverKey] = useState(0); // 用于强制刷新封面图片
+  const [coverKey, setCoverKey] = useState(0);
+  const [conversion, setConversion] = useState(null);
 
   useEffect(() => {
     loadBook();
     loadFav();
     loadProgress();
   }, [bookId]);
+
+  // 轮询格式转换进度
+  useEffect(() => {
+    if (!conversion || conversion.status !== 'converting') return;
+    const timer = setInterval(async () => {
+      try {
+        const res = await bookApi.getConversionStatus(bookId);
+        if (res.data) {
+          setConversion(res.data);
+          if (res.data.status === 'done') {
+            loadBook();
+          }
+        } else {
+          setConversion(null);
+        }
+      } catch {}
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [conversion?.status, bookId]);
 
   const loadBook = async () => {
     try {
@@ -48,6 +68,11 @@ export default function BookDetail() {
         skipIntro: res.data.skipIntro || 0,
         skipOutro: res.data.skipOutro || 0,
       });
+      // 加载格式转换进度
+      try {
+        const convRes = await bookApi.getConversionStatus(bookId);
+        if (convRes.data) setConversion(convRes.data);
+      } catch {}
     } catch (e) {
       console.error('Failed to load book:', e);
     } finally {
@@ -325,6 +350,39 @@ export default function BookDetail() {
             </div>
           </div>
         </motion.div>
+      )}
+
+      {/* 格式转换进度 */}
+      {conversion && conversion.status === 'converting' && (
+        <div className="glass-card p-3 mb-4">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-3.5 h-3.5 border-2 border-amber-500/30 border-t-amber-500 rounded-full animate-spin" />
+            <span className="text-xs text-dark-300">
+              正在转换格式 {conversion.completed}/{conversion.total}
+            </span>
+            <span className="text-[10px] text-dark-500 ml-auto">
+              WMA/APE → M4A
+            </span>
+          </div>
+          <div className="h-2 bg-dark-700 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-amber-500 rounded-full transition-all duration-500"
+              style={{ width: `${conversion.total > 0 ? (conversion.completed / conversion.total) * 100 : 0}%` }}
+            />
+          </div>
+          {conversion.currentFile && (
+            <p className="text-[10px] text-dark-500 mt-1.5 truncate">
+              {conversion.currentFile}
+            </p>
+          )}
+        </div>
+      )}
+      {conversion && conversion.status === 'done' && conversion.failed > 0 && (
+        <div className="glass-card p-3 mb-4">
+          <p className="text-xs text-amber-400">
+            格式转换完成，{conversion.failed} 个文件转换失败
+          </p>
+        </div>
       )}
 
       {/* 下载进度 */}

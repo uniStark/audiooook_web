@@ -185,8 +185,6 @@ const usePlayerStore = create((set, get) => ({
         });
       }
 
-      // 后台预转码接下来的几集（fire-and-forget，不阻塞播放）
-      bookApi.pretranscode(book.id, seasonIndex, episodeIndex);
     } catch (e) {
       console.error('Play error:', e);
       set({ error: e.message, isLoading: false });

@@ -14,7 +14,7 @@ services:
       # - /mnt/media:/mnt/media
       # - /home/user/audiobooks:/home/user/audiobooks
 
-      # 持久化服务端数据（配置、元数据、转码缓存、封面等）
+      # 持久化服务端数据（配置、元数据、用户数据、封面等）
       - ./data:/app/server/data
     environment:
       - NODE_ENV=production

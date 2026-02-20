@@ -16,7 +16,7 @@ import {
   HiCheck,
   HiXMark,
 } from 'react-icons/hi2';
-import { configApi, bookApi } from '../utils/api';
+import { configApi } from '../utils/api';
 import useBookStore from '../stores/bookStore';
 import useDownloadStore from '../stores/downloadStore';
 import { getCacheSize, getAllCachedAudio, removeCachedAudio, getCachedAudioByBook, setSetting, getSetting } from '../utils/db';
@@ -30,8 +30,6 @@ export default function Settings() {
   const [clearing, setClearing] = useState(false);
   const [showBrowser, setShowBrowser] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [autoTranscode, setAutoTranscode] = useState(true);
-  const [autoTranscodeCount, setAutoTranscodeCount] = useState(5);
   const [resumeRewindSeconds, setResumeRewindSeconds] = useState(3);
   // 下载管理
   const [cachedBooks, setCachedBooks] = useState([]);
@@ -52,12 +50,6 @@ export default function Settings() {
       setConfig(res.data);
       if (res.data.cacheSizeMB) {
         setCacheLimitMB(res.data.cacheSizeMB);
-      }
-      if (res.data.autoTranscode !== undefined) {
-        setAutoTranscode(res.data.autoTranscode);
-      }
-      if (res.data.autoTranscodeCount) {
-        setAutoTranscodeCount(res.data.autoTranscodeCount);
       }
     } catch (e) {
       console.error('Failed to load config:', e);
@@ -202,63 +194,6 @@ export default function Settings() {
                 </span>
               </div>
 
-              {/* 自动转码设置 */}
-              <div className="pt-2 border-t border-dark-700/30 space-y-3">
-                <div className="flex justify-between items-center">
-                  <div>
-                    <span className="text-dark-300 text-sm">自动后台转码</span>
-                    <p className="text-[10px] text-dark-500 mt-0.5">
-                      WMA/FLAC/APE 等格式自动转为 MP3
-                    </p>
-                  </div>
-                  <button
-                    onClick={async () => {
-                      const newVal = !autoTranscode;
-                      setAutoTranscode(newVal);
-                      try {
-                        await configApi.updateConfig({ autoTranscode: newVal });
-                        // 关闭时立即取消后台转码队列
-                        if (!newVal) {
-                          await bookApi.cancelTranscode().catch(() => {});
-                        }
-                      } catch {}
-                    }}
-                    className={`relative w-11 h-6 rounded-full transition-colors ${
-                      autoTranscode ? 'bg-primary-500' : 'bg-dark-600'
-                    }`}
-                  >
-                    <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${
-                      autoTranscode ? 'translate-x-[22px]' : 'translate-x-0.5'
-                    }`} />
-                  </button>
-                </div>
-
-                {autoTranscode && (
-                  <div>
-                    <div className="flex justify-between items-center mb-1.5">
-                      <span className="text-dark-400 text-xs">预转码集数</span>
-                      <span className="text-primary-500 text-xs font-medium">{autoTranscodeCount} 集</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="1"
-                      max="20"
-                      step="1"
-                      value={autoTranscodeCount}
-                      onChange={async (e) => {
-                        const val = parseInt(e.target.value) || 5;
-                        setAutoTranscodeCount(val);
-                        try { await configApi.updateConfig({ autoTranscodeCount: val }); } catch {}
-                      }}
-                      className="w-full"
-                    />
-                    <div className="flex justify-between text-[10px] text-dark-600 mt-0.5">
-                      <span>1集</span>
-                      <span>20集</span>
-                    </div>
-                  </div>
-                )}
-              </div>
             </div>
           ) : (
             <p className="text-sm text-dark-500">加载中...</p>
