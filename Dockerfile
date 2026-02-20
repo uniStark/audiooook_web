@@ -20,10 +20,10 @@ COPY server/ ./server/
 COPY --from=frontend-build /app/client/dist ./client/dist
 
 # 有声书默认存放目录
-VOLUME ["/home/books_audio"]
+VOLUME ["/data/audiooook_web"]
 
 ENV NODE_ENV=production
-ENV AUDIOBOOK_PATH=/home/books_audio
+ENV AUDIOBOOK_PATH=/data/audiooook_web
 ENV PORT=4001
 
 EXPOSE 4001

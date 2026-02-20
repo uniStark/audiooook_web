@@ -9,7 +9,7 @@
 #    sh deploy.sh
 #
 #  可选参数:
-#    AUDIOBOOK_DIR  有声书本地目录 (默认: /home/books_audio)
+#    AUDIOBOOK_DIR  有声书本地目录 (默认: /data/audiooook_web)
 #    MOUNT_DIR      挂载到容器的宿主机父目录，用于 UI 浏览 (默认: 与 AUDIOBOOK_DIR 相同)
 #                   例如有声书在 /nas/books 下，设 MOUNT_DIR=/nas 可在 UI 中浏览 /nas 下所有子目录
 #    HOST_PORT      对外访问端口   (默认: 3001)
@@ -21,7 +21,7 @@ set -e
 # ========== 配置 ==========
 REPO_URL="https://cnb.cool/stark.inc/audiooook_web.git"
 INSTALL_DIR="${INSTALL_DIR:-/opt/audiooook_web}"
-AUDIOBOOK_DIR="${AUDIOBOOK_DIR:-/home/books_audio}"
+AUDIOBOOK_DIR="${AUDIOBOOK_DIR:-/data/audiooook_web}"
 # 挂载到容器的宿主机父目录（用于 UI 浏览目录），默认与 AUDIOBOOK_DIR 相同
 MOUNT_DIR="${MOUNT_DIR:-$AUDIOBOOK_DIR}"
 HOST_PORT="${HOST_PORT:-3001}"

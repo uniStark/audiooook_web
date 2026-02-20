@@ -39,9 +39,13 @@ function getAudiobookPath() {
   } catch { /* ignore */ }
 
   const defaultPath = process.env.NODE_ENV === 'production'
-    ? '/home/books_audio'
+    ? '/data/audiooook_web'
     : path.join(__dirname, '..', '..', 'audiobooks');
-  return process.env.AUDIOBOOK_PATH || defaultPath;
+  const resolved = process.env.AUDIOBOOK_PATH || defaultPath;
+  if (!fs.existsSync(resolved)) {
+    fs.mkdirSync(resolved, { recursive: true });
+  }
+  return resolved;
 }
 
 /**

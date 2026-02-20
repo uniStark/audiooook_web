@@ -164,7 +164,7 @@ audiooook_web/
   1. **文件 (Files)**: Select individual audio files → requires book name + optional season. Saves to `{audiobookPath}/{bookName}/{seasonName}/`
   2. **文件夹 (Folder)**: Select a folder via `webkitdirectory` → auto-detects audio files and preserves directory structure (seasons/episodes). Book name auto-fills from folder name
   3. **压缩包 (Archive)**: Upload ZIP / 7Z / RAR / TAR.GZ / TAR.BZ2 / TGZ → auto-extracted on server. Book name auto-fills from archive name. Smart extraction: if archive contains a single top-level directory, it's used directly; otherwise wrapped in book-name folder
-- **Upload destination**: `{audiobookPath}/{bookName}/...` — default: `/home/books_audio/`
+- **Upload destination**: `{audiobookPath}/{bookName}/...` — default: `/data/audiooook_web/`
 - **Auto-conversion**: If uploaded/extracted files are WMA/APE, they are automatically converted to AAC/.m4a in the background after upload completes (non-blocking)
 - **Upload progress**: XHR-based upload with real-time percentage progress bar
 - **Supported audio formats**: MP3, WMA, WAV, FLAC, AAC, OGG, M4A, OPUS, APE, ALAC
@@ -278,7 +278,7 @@ WMA/APE files are automatically converted to AAC/.m4a after upload/extraction (b
 ```json
 {
   "cacheSizeMB": 300,
-  "audiobookPath": "/home/books_audio"
+  "audiobookPath": "/data/audiooook_web"
 }
 ```
 
@@ -345,7 +345,7 @@ WMA/APE files are automatically converted to AAC/.m4a after upload/extraction (b
 1. Runtime override (`setAudiobookPath()` via API)
 2. `config.json` → `audiobookPath`
 3. `AUDIOBOOK_PATH` environment variable
-4. Default: `/home/books_audio` (production) or `./audiobooks` (development)
+4. Default: `/data/audiooook_web` (production) or `./audiobooks` (development)
 
 ---
 
@@ -373,12 +373,12 @@ docker compose up -d --build
 | Variable | Default | Description |
 |---|---|---|
 | `NODE_ENV` | production | |
-| `AUDIOBOOK_PATH` | /home/books_audio | Default audiobook directory (also receives uploaded files) |
+| `AUDIOBOOK_PATH` | /data/audiooook_web | Default audiobook directory (also receives uploaded files) |
 | `PORT` | 4001 | Internal container port |
 
 ### Volume Mounts
 - **Audiobook directory**: Mount the host's parent directory at **the same path** inside the container (e.g., `-v /nas:/nas`). This allows the UI directory browser to see the host filesystem, and the selected audiobook path (e.g., `/nas/books`) works identically inside and outside the container.
-  - Default audiobook path: `/home/books_audio` (files uploaded via UI are saved here)
+  - Default audiobook path: `/data/audiooook_web` (files uploaded via UI are saved here)
   - Example: If audiobooks are also in `/nas/books`, mount `/nas:/nas` and set `AUDIOBOOK_PATH=/nas/books`
   - Multiple mounts supported: `-v /nas:/nas -v /mnt/media:/mnt/media`
 - `/app/server/data` — Persistent data (config, metadata, user-data, covers). Bind-mounted to `./data` on host for easy access/editing

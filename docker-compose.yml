@@ -6,7 +6,7 @@ services:
       - "3001:4001"
     volumes:
       # 有声书默认存放目录（宿主机 → 容器，用户上传的文件也保存在这里）
-      - /home/books_audio:/home/books_audio
+      - /data/audiooook_web:/data/audiooook_web
 
       # 如需额外挂载已有的有声书目录，取消注释并修改：
       # - /nas:/nas
@@ -16,7 +16,7 @@ services:
       - ./data:/app/server/data
     environment:
       - NODE_ENV=production
-      - AUDIOBOOK_PATH=/home/books_audio
+      - AUDIOBOOK_PATH=/data/audiooook_web
       - PORT=4001
       # 阿里云OSS配置（可选）
       # - OSS_REGION=oss-cn-hangzhou

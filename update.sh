@@ -119,7 +119,7 @@ else
   log_info "重建镜像..."
   docker build $FORCE_BUILD -t "$IMAGE_NAME" .
 
-  AUDIOBOOK_DIR="${AUDIOBOOK_DIR:-/home/books_audio}"
+  AUDIOBOOK_DIR="${AUDIOBOOK_DIR:-/data/audiooook_web}"
   MOUNT_DIR="${MOUNT_DIR:-$AUDIOBOOK_DIR}"
   HOST_PORT="${HOST_PORT:-3001}"
 
