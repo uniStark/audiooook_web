@@ -3,6 +3,8 @@
 #  audiooook_web 快速更新脚本
 #  拉取最新代码并重建 Docker 容器
 #
+#  默认从 CNB 仓库拉取，失败时自动切换到 GitHub 备用仓库
+#
 #  用法:
 #    sh update.sh           # 在项目目录下执行
 #    sh update.sh --force   # 强制重建（不使用缓存）
@@ -12,6 +14,8 @@ set -e
 
 CONTAINER_NAME="audiooook_web"
 IMAGE_NAME="audiooook_web"
+CNB_URL="https://cnb.cool/stark.inc/audiooook_web.git"
+GITHUB_URL="https://github.com/uniStark/audiooook_web.git"
 
 # 颜色
 GREEN='\033[0;32m'
@@ -41,9 +45,35 @@ printf "\n${CYAN}═════════════════════
 printf "${CYAN}  audiooook_web 快速更新${NC}\n"
 printf "${CYAN}══════════════════════════════════════${NC}\n\n"
 
-# ========== 1. 拉取最新代码 ==========
-log_info "拉取最新代码..."
-git fetch origin
+# ========== 1. 确保远程仓库为 CNB ==========
+CURRENT_URL=$(git remote get-url origin 2>/dev/null || echo "")
+if [ "$CURRENT_URL" != "$CNB_URL" ]; then
+  log_info "设置默认远程仓库为 CNB..."
+  git remote set-url origin "$CNB_URL" 2>/dev/null || git remote add origin "$CNB_URL"
+fi
+
+# ========== 2. 拉取最新代码（CNB 优先，GitHub 备用） ==========
+log_info "从 CNB 拉取最新代码..."
+FETCH_OK=""
+if git fetch origin 2>/dev/null; then
+  FETCH_OK="cnb"
+  log_info "CNB 拉取成功"
+else
+  log_warn "CNB 连接失败，尝试 GitHub 备用仓库..."
+  git remote set-url origin "$GITHUB_URL"
+  if git fetch origin 2>/dev/null; then
+    FETCH_OK="github"
+    log_info "GitHub 拉取成功"
+    # 恢复 CNB 为默认
+    git remote set-url origin "$CNB_URL"
+  fi
+fi
+
+if [ -z "$FETCH_OK" ]; then
+  log_error "CNB 和 GitHub 仓库均无法连接，请检查网络"
+  exit 1
+fi
+
 LOCAL=$(git rev-parse HEAD)
 REMOTE=$(git rev-parse origin/main)
 
@@ -58,12 +88,12 @@ if [ "$LOCAL" = "$REMOTE" ] && [ -z "$FORCE_BUILD" ]; then
 else
   git reset --hard origin/main
   NEW=$(git rev-parse --short HEAD)
-  log_info "代码已更新到 $NEW"
+  log_info "代码已更新到 $NEW (来源: $FETCH_OK)"
   git log --oneline -3
   echo ""
 fi
 
-# ========== 2. 检测 compose 命令 ==========
+# ========== 3. 检测 compose 命令 ==========
 COMPOSE_CMD=""
 if docker compose version >/dev/null 2>&1; then
   COMPOSE_CMD="docker compose"
@@ -71,7 +101,7 @@ elif command -v docker-compose >/dev/null 2>&1; then
   COMPOSE_CMD="docker-compose"
 fi
 
-# ========== 3. 重建并重启 ==========
+# ========== 4. 重建并重启 ==========
 if [ -n "$COMPOSE_CMD" ]; then
   log_info "停止旧容器..."
   $COMPOSE_CMD down 2>/dev/null || true
@@ -89,8 +119,7 @@ else
   log_info "重建镜像..."
   docker build $FORCE_BUILD -t "$IMAGE_NAME" .
 
-  # 读取之前的挂载配置
-  AUDIOBOOK_DIR="${AUDIOBOOK_DIR:-$HOME/audiobooks}"
+  AUDIOBOOK_DIR="${AUDIOBOOK_DIR:-/home/books_audio}"
   MOUNT_DIR="${MOUNT_DIR:-$AUDIOBOOK_DIR}"
   HOST_PORT="${HOST_PORT:-3001}"
 
@@ -107,11 +136,11 @@ else
     "$IMAGE_NAME"
 fi
 
-# ========== 4. 清理旧镜像 ==========
+# ========== 5. 清理旧镜像 ==========
 log_info "清理无用镜像..."
 docker image prune -f >/dev/null 2>&1 || true
 
-# ========== 5. 验证 ==========
+# ========== 6. 验证 ==========
 sleep 3
 if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
   if command -v curl >/dev/null 2>&1; then

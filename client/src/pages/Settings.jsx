@@ -8,6 +8,8 @@ import {
   HiOutlineFolder,
   HiOutlinePlayCircle,
   HiOutlineArrowDownTray,
+  HiOutlineArrowUpTray,
+  HiOutlineMusicalNote,
   HiChevronRight,
   HiChevronDown,
   HiChevronUp,
@@ -16,7 +18,7 @@ import {
   HiCheck,
   HiXMark,
 } from 'react-icons/hi2';
-import { configApi } from '../utils/api';
+import { configApi, uploadApi } from '../utils/api';
 import useBookStore from '../stores/bookStore';
 import useDownloadStore from '../stores/downloadStore';
 import { getCacheSize, getAllCachedAudio, removeCachedAudio, getCachedAudioByBook, setSetting, getSetting } from '../utils/db';
@@ -31,6 +33,15 @@ export default function Settings() {
   const [showBrowser, setShowBrowser] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [resumeRewindSeconds, setResumeRewindSeconds] = useState(3);
+  // 上架图书
+  const [uploadMode, setUploadMode] = useState('files');
+  const [uploadBookName, setUploadBookName] = useState('');
+  const [uploadSeasonName, setUploadSeasonName] = useState('');
+  const [uploadFiles, setUploadFiles] = useState([]);
+  const [uploadRelativePaths, setUploadRelativePaths] = useState([]);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadResult, setUploadResult] = useState(null);
   // 下载管理
   const [cachedBooks, setCachedBooks] = useState([]);
   const [showCachedDetail, setShowCachedDetail] = useState(null);
@@ -135,6 +146,90 @@ export default function Settings() {
     }
   };
 
+  const audioExts = '.mp3,.wma,.wav,.flac,.aac,.ogg,.m4a,.opus,.ape,.alac';
+  const archiveExts = '.zip,.7z,.rar,.tar,.tar.gz,.tgz,.tar.bz2,.tar.xz';
+
+  const handleFilesSelect = (e) => {
+    const files = Array.from(e.target.files || []);
+    setUploadFiles(files);
+    setUploadRelativePaths([]);
+    setUploadResult(null);
+  };
+
+  const handleFolderSelect = (e) => {
+    const allFiles = Array.from(e.target.files || []);
+    const audioFiles = allFiles.filter(f => {
+      const ext = f.name.split('.').pop()?.toLowerCase();
+      return ['mp3','wma','wav','flac','aac','ogg','m4a','opus','ape','alac'].includes(ext);
+    });
+    setUploadFiles(audioFiles);
+    setUploadRelativePaths(audioFiles.map(f => f.webkitRelativePath));
+    setUploadResult(null);
+    // Auto-fill book name from folder name
+    if (audioFiles.length > 0 && !uploadBookName) {
+      const firstPath = audioFiles[0].webkitRelativePath;
+      const folderName = firstPath.split('/')[0];
+      if (folderName) setUploadBookName(folderName);
+    }
+  };
+
+  const handleArchiveSelect = (e) => {
+    const files = Array.from(e.target.files || []);
+    setUploadFiles(files.slice(0, 1));
+    setUploadRelativePaths([]);
+    setUploadResult(null);
+    // Auto-fill book name from archive name
+    if (files[0] && !uploadBookName) {
+      const name = files[0].name.replace(/\.(zip|7z|rar|tar\.gz|tar\.bz2|tar\.xz|tgz|tar)$/i, '');
+      setUploadBookName(name);
+    }
+  };
+
+  const resetUpload = () => {
+    setUploadFiles([]);
+    setUploadRelativePaths([]);
+    setUploadBookName('');
+    setUploadSeasonName('');
+    setUploadResult(null);
+  };
+
+  const handleUpload = async () => {
+    if (uploadFiles.length === 0 || uploading) return;
+    if (uploadMode === 'files' && !uploadBookName.trim()) return;
+    setUploading(true);
+    setUploadProgress(0);
+    setUploadResult(null);
+    try {
+      const formData = new FormData();
+      formData.append('mode', uploadMode);
+      if (uploadBookName.trim()) formData.append('bookName', uploadBookName.trim());
+      if (uploadMode === 'files' && uploadSeasonName.trim()) {
+        formData.append('seasonName', uploadSeasonName.trim());
+      }
+      if (uploadMode === 'folder') {
+        formData.append('relativePaths', JSON.stringify(uploadRelativePaths));
+      }
+      for (const file of uploadFiles) {
+        formData.append('files', file);
+      }
+      const res = await uploadApi.uploadFiles(formData, setUploadProgress);
+      if (res.success) {
+        const d = res.data;
+        let msg = uploadMode === 'archive'
+          ? `解压完成 → "${d.bookName}"`
+          : `上传成功 ${d.uploadedCount} 个文件 → "${d.bookName}"`;
+        if (d.convertingCount > 0) msg += `，${d.convertingCount} 个正在转换格式`;
+        setUploadResult({ type: 'success', message: msg });
+        resetUpload();
+        await fetchBooks();
+      }
+    } catch (e) {
+      setUploadResult({ type: 'error', message: e.message || '上传失败' });
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const cachePercentage = cacheLimitMB > 0 ? Math.min(100, (cacheSize / (cacheLimitMB * 1024 * 1024)) * 100) : 0;
 
   return (
@@ -198,6 +293,158 @@ export default function Settings() {
           ) : (
             <p className="text-sm text-dark-500">加载中...</p>
           )}
+        </div>
+
+        {/* 上架图书 */}
+        <div className="glass-card p-4">
+          <div className="flex items-center gap-3 mb-3">
+            <HiOutlineArrowUpTray className="w-5 h-5 text-primary-500" />
+            <h2 className="font-semibold">上架图书</h2>
+          </div>
+          <p className="text-[10px] text-dark-500 mb-3">
+            上传音频到服务器，WMA/APE 格式会自动转换为 M4A
+          </p>
+
+          {/* 模式切换 */}
+          <div className="flex gap-1 mb-3 bg-dark-800 rounded-lg p-0.5">
+            {[
+              { key: 'files', label: '文件' },
+              { key: 'folder', label: '文件夹' },
+              { key: 'archive', label: '压缩包' },
+            ].map(m => (
+              <button
+                key={m.key}
+                onClick={() => { setUploadMode(m.key); resetUpload(); }}
+                className={`flex-1 text-xs py-2 rounded-md transition-all ${
+                  uploadMode === m.key
+                    ? 'bg-primary-500 text-dark-900 font-medium'
+                    : 'text-dark-400 hover:text-dark-200'
+                }`}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="space-y-3">
+            {/* 书名 */}
+            <div>
+              <label className="text-xs text-dark-400 mb-1 block">
+                书名{uploadMode === 'files' ? ' *' : '（可选，自动识别）'}
+              </label>
+              <input
+                type="text"
+                value={uploadBookName}
+                onChange={(e) => setUploadBookName(e.target.value)}
+                placeholder={uploadMode === 'archive' ? '默认取压缩包名称' : uploadMode === 'folder' ? '默认取文件夹名称' : '输入小说名称'}
+                className="w-full bg-dark-700 border border-dark-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary-500/50"
+              />
+            </div>
+
+            {/* 季/章节 — only for file mode */}
+            {uploadMode === 'files' && (
+              <div>
+                <label className="text-xs text-dark-400 mb-1 block">季/章节（可选）</label>
+                <input
+                  type="text"
+                  value={uploadSeasonName}
+                  onChange={(e) => setUploadSeasonName(e.target.value)}
+                  placeholder="如：第一季、七星鲁王宫"
+                  className="w-full bg-dark-700 border border-dark-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary-500/50"
+                />
+              </div>
+            )}
+
+            {/* File picker */}
+            <div>
+              <label className="text-xs text-dark-400 mb-1.5 block">
+                {uploadMode === 'archive' ? '压缩包文件' : uploadMode === 'folder' ? '选择文件夹' : '音频文件'}
+              </label>
+
+              {uploadMode === 'files' && (
+                <label className="flex flex-col items-center justify-center gap-2 border-2 border-dashed border-dark-600 hover:border-primary-500/50 rounded-xl p-4 cursor-pointer transition-colors">
+                  <HiOutlineMusicalNote className="w-8 h-8 text-dark-500" />
+                  <span className="text-xs text-dark-400">
+                    {uploadFiles.length > 0 ? `已选择 ${uploadFiles.length} 个音频文件` : '点击选择音频文件'}
+                  </span>
+                  {uploadFiles.length > 0 && (
+                    <span className="text-[10px] text-dark-500">
+                      {(uploadFiles.reduce((s, f) => s + f.size, 0) / 1024 / 1024).toFixed(1)} MB
+                    </span>
+                  )}
+                  <input type="file" accept={audioExts} multiple onChange={handleFilesSelect} className="hidden" />
+                </label>
+              )}
+
+              {uploadMode === 'folder' && (
+                <label className="flex flex-col items-center justify-center gap-2 border-2 border-dashed border-dark-600 hover:border-primary-500/50 rounded-xl p-4 cursor-pointer transition-colors">
+                  <HiOutlineFolderOpen className="w-8 h-8 text-dark-500" />
+                  <span className="text-xs text-dark-400">
+                    {uploadFiles.length > 0 ? `已选择 ${uploadFiles.length} 个音频文件` : '点击选择有声书文件夹'}
+                  </span>
+                  {uploadFiles.length > 0 && (
+                    <span className="text-[10px] text-dark-500">
+                      {(uploadFiles.reduce((s, f) => s + f.size, 0) / 1024 / 1024).toFixed(1)} MB
+                    </span>
+                  )}
+                  {/* webkitdirectory triggers folder selection */}
+                  <input type="file" webkitdirectory="" directory="" multiple onChange={handleFolderSelect} className="hidden" />
+                </label>
+              )}
+
+              {uploadMode === 'archive' && (
+                <label className="flex flex-col items-center justify-center gap-2 border-2 border-dashed border-dark-600 hover:border-primary-500/50 rounded-xl p-4 cursor-pointer transition-colors">
+                  <HiOutlineArrowDownTray className="w-8 h-8 text-dark-500" />
+                  <span className="text-xs text-dark-400">
+                    {uploadFiles.length > 0 ? uploadFiles[0].name : '支持 ZIP / 7Z / RAR / TAR.GZ'}
+                  </span>
+                  {uploadFiles.length > 0 && (
+                    <span className="text-[10px] text-dark-500">
+                      {(uploadFiles[0].size / 1024 / 1024).toFixed(1)} MB
+                    </span>
+                  )}
+                  <input type="file" accept={archiveExts} onChange={handleArchiveSelect} className="hidden" />
+                </label>
+              )}
+            </div>
+
+            {/* 上传进度 */}
+            {uploading && (
+              <div>
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-dark-400">{uploadMode === 'archive' ? '上传并解压中...' : '上传中...'}</span>
+                  <span className="text-primary-500">{uploadProgress}%</span>
+                </div>
+                <div className="h-2 bg-dark-700 rounded-full overflow-hidden">
+                  <div className="h-full bg-primary-500 rounded-full transition-all duration-300" style={{ width: `${uploadProgress}%` }} />
+                </div>
+              </div>
+            )}
+
+            {/* 上传结果 */}
+            {uploadResult && (
+              <div className={`text-xs px-3 py-2 rounded-lg ${
+                uploadResult.type === 'success' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'
+              }`}>
+                {uploadResult.message}
+              </div>
+            )}
+
+            <button
+              onClick={handleUpload}
+              disabled={uploading || uploadFiles.length === 0 || (uploadMode === 'files' && !uploadBookName.trim())}
+              className="w-full flex items-center justify-center gap-2 bg-primary-500 hover:bg-primary-600 text-dark-900 py-3 rounded-xl transition-all active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {uploading ? (
+                <div className="w-4 h-4 border-2 border-dark-900/30 border-t-dark-900 rounded-full animate-spin" />
+              ) : (
+                <HiOutlineArrowUpTray className="w-5 h-5" />
+              )}
+              <span className="text-sm font-medium">
+                {uploading ? '上传中...' : uploadMode === 'archive' ? '上传并解压' : '上传到服务器'}
+              </span>
+            </button>
+          </div>
         </div>
 
         {/* 播放设置 */}

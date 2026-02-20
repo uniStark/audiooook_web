@@ -5,20 +5,18 @@ services:
     ports:
       - "3001:4001"
     volumes:
-      # 宿主机目录挂载（供 UI 浏览和读取有声书文件）
-      # 将包含有声书的父目录挂载进容器，这样可以在 UI 中浏览和选择子目录
-      # 示例：挂载 /nas 后，可在 UI 中选择 /nas/books、/nas/audiobooks 等任意子目录
-      - /nas:/nas
+      # 有声书默认存放目录（宿主机 → 容器，用户上传的文件也保存在这里）
+      - /home/books_audio:/home/books_audio
 
-      # 如果有声书分布在多个不同路径，可以添加多个挂载：
+      # 如需额外挂载已有的有声书目录，取消注释并修改：
+      # - /nas:/nas
       # - /mnt/media:/mnt/media
-      # - /home/user/audiobooks:/home/user/audiobooks
 
       # 持久化服务端数据（配置、元数据、用户数据、封面等）
       - ./data:/app/server/data
     environment:
       - NODE_ENV=production
-      - AUDIOBOOK_PATH=/nas/books
+      - AUDIOBOOK_PATH=/home/books_audio
       - PORT=4001
       # 阿里云OSS配置（可选）
       # - OSS_REGION=oss-cn-hangzhou

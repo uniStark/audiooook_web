@@ -69,6 +69,31 @@ export const userApi = {
   saveSettings: (data) => request(`/user/settings`, { method: 'PUT', body: JSON.stringify(data) }),
 };
 
+// 上传API
+export const uploadApi = {
+  uploadFiles: (formData, onProgress) => {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${API_BASE}/upload`);
+      if (onProgress) {
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+        };
+      }
+      xhr.onload = () => {
+        try {
+          const data = JSON.parse(xhr.responseText);
+          if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+          else reject(new Error(data.error || `HTTP ${xhr.status}`));
+        } catch { reject(new Error(`HTTP ${xhr.status}`)); }
+      };
+      xhr.onerror = () => reject(new Error('网络错误'));
+      xhr.send(formData);
+    });
+  },
+  getUploadPath: () => request('/upload/path'),
+};
+
 // 配置相关API
 export const configApi = {
   getConfig: () => request('/config'),

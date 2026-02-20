@@ -69,13 +69,13 @@ audiooook_web/
 │   │   │   ├── Bookshelf.jsx   # Main page: book grid + search + refresh
 │   │   │   ├── BookDetail.jsx  # Book info, season/episode list, metadata editing, cover upload
 │   │   │   ├── Favorites.jsx   # Favorited books list
-│   │   │   └── Settings.jsx    # Server config, cache management, playback settings, dir browser
+│   │   │   └── Settings.jsx    # Server config, cache management, playback settings, dir browser, book upload
 │   │   ├── stores/
 │   │   │   ├── playerStore.js  # Zustand: audio playback state, skip intro/outro, progress persistence
 │   │   │   ├── bookStore.js    # Zustand: book list, favorites
 │   │   │   └── downloadStore.js # Zustand: download task management, progress tracking, cancel
 │   │   └── utils/
-│   │       ├── api.js          # Centralized API client (bookApi, configApi, userApi)
+│   │       ├── api.js          # Centralized API client (bookApi, configApi, userApi, uploadApi)
 │   │       ├── db.js           # IndexedDB operations + server sync (progress, favorites, audio cache, settings)
 │   │       └── format.js       # Formatting utilities (time, size, date)
 │   ├── vite.config.js          # Vite config: dev port 4001, proxy to backend 5001, PWA plugin
@@ -86,6 +86,7 @@ audiooook_web/
 │   │   ├── books.js            # /api/books — list, detail, metadata CRUD, cover upload, conversion trigger + status
 │   │   ├── audio.js            # /api/audio — streaming (direct file), download
 │   │   ├── config.js           # /api/config — server settings, directory browser
+│   │   ├── upload.js           # /api/upload — file upload (multer), auto-convert WMA/APE → M4A
 │   │   └── user.js             # /api/user — server-side persistence for favorites, progress, user settings
 │   ├── services/
 │   │   ├── scanner.js          # Audiobook directory scanner, metadata CRUD, cover finder
@@ -97,7 +98,7 @@ audiooook_web/
 ├── Dockerfile                  # Multi-stage: frontend build → production with FFmpeg
 ├── docker-compose.yml          # Container config: port 3001→4001, volume mounts
 ├── deploy.sh                   # One-click Linux deployment (POSIX sh compatible)
-├── update.sh                   # Quick Docker update script
+├── update.sh                   # Quick Docker update script (CNB default, GitHub fallback)
 ├── dev.sh                      # Development environment manager
 ├── .gitattributes              # Force LF line endings (critical for shell scripts)
 └── PROJECT_CONTEXT.md          # ← This file
@@ -158,14 +159,29 @@ audiooook_web/
 - **Cover upload UI**: Click on cover image in BookDetail page → file picker → upload with loading animation
 - All metadata stored in `server/data/metadata.json`
 
-### 4.6 Bookshelf & Favorites
+### 4.6 File Upload (Book Shelving)
+- **Three upload modes** (tab selector in Settings UI):
+  1. **文件 (Files)**: Select individual audio files → requires book name + optional season. Saves to `{audiobookPath}/{bookName}/{seasonName}/`
+  2. **文件夹 (Folder)**: Select a folder via `webkitdirectory` → auto-detects audio files and preserves directory structure (seasons/episodes). Book name auto-fills from folder name
+  3. **压缩包 (Archive)**: Upload ZIP / 7Z / RAR / TAR.GZ / TAR.BZ2 / TGZ → auto-extracted on server. Book name auto-fills from archive name. Smart extraction: if archive contains a single top-level directory, it's used directly; otherwise wrapped in book-name folder
+- **Upload destination**: `{audiobookPath}/{bookName}/...` — default: `/home/books_audio/`
+- **Auto-conversion**: If uploaded/extracted files are WMA/APE, they are automatically converted to AAC/.m4a in the background after upload completes (non-blocking)
+- **Upload progress**: XHR-based upload with real-time percentage progress bar
+- **Supported audio formats**: MP3, WMA, WAV, FLAC, AAC, OGG, M4A, OPUS, APE, ALAC
+- **Supported archive formats**: ZIP, 7Z, RAR, TAR, TAR.GZ, TGZ, TAR.BZ2, TAR.XZ
+- **File size limit**: 2GB per file, up to 500 files per upload
+- **After upload**: Bookshelf auto-refreshes to show the new book
+- **Backend**: `multer` (temp dir → move), `7z` for archive extraction, `tar` for tar-based; `server/routes/upload.js`
+- **Docker**: `7zip` package installed in container for archive support
+
+### 4.7 Bookshelf & Favorites
 - **Bookshelf**: List view of all detected audiobooks with covers, names, episode counts
 - **Search**: Filter books by name
 - **Sorting**: Three modes cycling via button — Recent (default, by last played), Name A→Z, Name Z→A. Sort preference persisted in IndexedDB settings
 - **Refresh**: Manual refresh button to re-scan audiobook directory
 - **Favorites**: Star/unstar books, stored in both IndexedDB AND server-side `user-data.json` (survives redeployment)
 
-### 4.7 Offline Download & Caching
+### 4.8 Offline Download & Caching
 - **Season download**: Download all episodes of a season for offline playback
 - **Download progress**: Real-time progress tracking per file (percentage) and overall progress (completed/total), using ReadableStream for byte-level progress
 - **Cancel download**: Active downloads can be cancelled mid-flight via AbortController; remaining tasks are marked as cancelled
@@ -176,7 +192,7 @@ audiooook_web/
 - **Auto-cleanup**: Old cache entries removed when limit exceeded (LRU)
 - **Offline playback**: Cached audio served from IndexedDB, no server needed
 
-### 4.8 Server Directory Browser
+### 4.9 Server Directory Browser
 - **UI**: Bottom sheet modal for browsing server filesystem
 - **Features**: Navigate directories, go to parent, breadcrumb path, manual path input
 - **Windows support**: Lists available drive letters (C:, D:, etc.)
@@ -185,7 +201,7 @@ audiooook_web/
 - **Auto-refresh**: After selecting a new audiobook directory, book list refreshes automatically
 - **Docker note**: The browse endpoint lists the **container's** filesystem, not the host's. To browse host directories (e.g., `/nas/books`), the parent directory must be mounted into the container at the same path (e.g., `-v /nas:/nas`). See Volume Mounts section.
 
-### 4.9 UI/UX Requirements
+### 4.10 UI/UX Requirements
 - **Mobile-first**: Designed for phone screens (max-width container)
 - **Dark theme**: Dark background with amber/gold accent colors
 - **Glass morphism**: Semi-transparent cards with backdrop blur
@@ -213,6 +229,15 @@ audiooook_web/
 |---|---|---|
 | GET | `/api/audio/:bookId/:seasonId/:episodeId` | Stream audio file (direct file serving, supports Range) |
 | GET | `/api/audio/download/:bookId/:seasonId/:episodeId` | Download audio file |
+
+### Upload (`/api/upload`)
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/upload` | Upload files (multipart/form-data: mode, bookName, seasonName, files[], relativePaths) |
+| GET | `/api/upload/path` | Get current audiobook upload directory path |
+
+Three modes: `files` (audio files), `folder` (with relativePaths JSON), `archive` (auto-extract ZIP/7Z/RAR/TAR.GZ).
+WMA/APE files are automatically converted to AAC/.m4a after upload/extraction (background, non-blocking).
 
 ### Config (`/api/config`)
 | Method | Path | Description |
@@ -253,7 +278,7 @@ audiooook_web/
 ```json
 {
   "cacheSizeMB": 300,
-  "audiobookPath": "/audiobooks"
+  "audiobookPath": "/home/books_audio"
 }
 ```
 
@@ -320,7 +345,7 @@ audiooook_web/
 1. Runtime override (`setAudiobookPath()` via API)
 2. `config.json` → `audiobookPath`
 3. `AUDIOBOOK_PATH` environment variable
-4. Default: `./audiobooks` relative to project root
+4. Default: `/home/books_audio` (production) or `./audiobooks` (development)
 
 ---
 
@@ -348,12 +373,13 @@ docker compose up -d --build
 | Variable | Default | Description |
 |---|---|---|
 | `NODE_ENV` | production | |
-| `AUDIOBOOK_PATH` | /audiobooks | Mount point for audiobook files |
+| `AUDIOBOOK_PATH` | /home/books_audio | Default audiobook directory (also receives uploaded files) |
 | `PORT` | 4001 | Internal container port |
 
 ### Volume Mounts
 - **Audiobook directory**: Mount the host's parent directory at **the same path** inside the container (e.g., `-v /nas:/nas`). This allows the UI directory browser to see the host filesystem, and the selected audiobook path (e.g., `/nas/books`) works identically inside and outside the container.
-  - Example: If audiobooks are in `/nas/books`, mount `/nas:/nas` and set `AUDIOBOOK_PATH=/nas/books`
+  - Default audiobook path: `/home/books_audio` (files uploaded via UI are saved here)
+  - Example: If audiobooks are also in `/nas/books`, mount `/nas:/nas` and set `AUDIOBOOK_PATH=/nas/books`
   - Multiple mounts supported: `-v /nas:/nas -v /mnt/media:/mnt/media`
 - `/app/server/data` — Persistent data (config, metadata, user-data, covers). Bind-mounted to `./data` on host for easy access/editing
 - **deploy.sh variables**: `AUDIOBOOK_DIR` (audiobook path), `MOUNT_DIR` (parent dir to mount, defaults to AUDIOBOOK_DIR)
@@ -418,4 +444,4 @@ These are areas the owner may want to extend:
 
 *Author: Adrian Stark*
 *Last updated: 2026-02-08*
-*Document version: 1.4 — Major architecture change: removed on-demand transcoding, replaced with permanent WMA/APE → AAC conversion*
+*Document version: 1.6 — Upload supports folder & archive (ZIP/7Z/RAR); update.sh uses CNB as default repo*

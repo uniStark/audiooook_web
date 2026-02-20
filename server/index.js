@@ -26,6 +26,7 @@ const booksRouter = require('./routes/books');
 const audioRouter = require('./routes/audio');
 const configRouter = require('./routes/config');
 const userRouter = require('./routes/user');
+const uploadRouter = require('./routes/upload');
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -39,6 +40,7 @@ app.use('/api/books', booksRouter);
 app.use('/api/audio', audioRouter);
 app.use('/api/config', configRouter);
 app.use('/api/user', userRouter);
+app.use('/api/upload', uploadRouter);
 
 // 生产环境：提供前端静态文件
 const clientDistPath = path.join(__dirname, '..', 'client', 'dist');

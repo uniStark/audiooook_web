@@ -10,8 +10,8 @@ RUN npm run build
 FROM node:20-alpine
 WORKDIR /app
 
-# 安装 ffmpeg 用于音频格式转换
-RUN apk add --no-cache ffmpeg
+# ffmpeg: 音频格式转换  7zip: 解压 zip/7z/rar 等压缩包
+RUN apk add --no-cache ffmpeg 7zip
 
 COPY server/package*.json ./server/
 RUN cd server && npm ci --production
@@ -19,11 +19,11 @@ RUN cd server && npm ci --production
 COPY server/ ./server/
 COPY --from=frontend-build /app/client/dist ./client/dist
 
-# 有声书存放目录（通过docker volume挂载）
-VOLUME ["/audiobooks"]
+# 有声书默认存放目录
+VOLUME ["/home/books_audio"]
 
 ENV NODE_ENV=production
-ENV AUDIOBOOK_PATH=/audiobooks
+ENV AUDIOBOOK_PATH=/home/books_audio
 ENV PORT=4001
 
 EXPOSE 4001

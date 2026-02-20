@@ -38,7 +38,10 @@ function getAudiobookPath() {
     }
   } catch { /* ignore */ }
 
-  return process.env.AUDIOBOOK_PATH || path.join(__dirname, '..', '..', 'audiobooks');
+  const defaultPath = process.env.NODE_ENV === 'production'
+    ? '/home/books_audio'
+    : path.join(__dirname, '..', '..', 'audiobooks');
+  return process.env.AUDIOBOOK_PATH || defaultPath;
 }
 
 /**

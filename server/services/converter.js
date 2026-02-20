@@ -272,5 +272,6 @@ module.exports = {
   bookNeedsConversion,
   collectFilesToConvert,
   needsConversion,
+  convertFile,
   CONVERT_EXTENSIONS,
 };
